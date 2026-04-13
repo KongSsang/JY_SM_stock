@@ -153,7 +153,7 @@ with tab1:
 
     st.divider()
 
-    st.header("💰 오늘의 총 자산")
+    st.header("💰 오늘의 결혼 자금 합")
     grand_total = config.krw_balance + usd_current_krw + total_stock_value
     total_profit = total_stock_value - total_invested
     total_return_rate = (total_profit / total_invested) * 100 if total_invested > 0 else 0
@@ -163,7 +163,7 @@ with tab1:
     col_t2.metric("주식 총 평가손익", f"₩{total_profit:,.0f}", f"주식 총 수익률: {total_return_rate:,.2f}%")
 
     st.divider()
-    st.header("📈 나의 실제 총 자산 변동 추이")
+    st.header("📈 우리의 총 자산 변동 추이")
 
     kst = pytz.timezone('Asia/Seoul')
     today_str = datetime.now(kst).strftime('%Y-%m-%d')
