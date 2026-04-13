@@ -9,6 +9,7 @@ import pytz
 import requests
 import plotly.express as px
 from streamlit_lottie import st_lottie  # 👈 애니메이션용 라이브러리 추가
+from bs4 import BeautifulSoup
 
 # 페이지 여백을 줄이고 더 넓게 쓰기 위한 설정 추가
 st.set_page_config(page_title="결혼 자금 포트폴리오", page_icon="💍", layout="wide", initial_sidebar_state="collapsed")
@@ -166,28 +167,45 @@ with tab1:
         col3.metric("달러 원화 환산액", f"₩{usd_current_krw:,.0f}", f"현재 환율: ₩{current_usd_krw:,.2f}")
         col4.metric("달러 환차익 수익률", f"{usd_return_rate:,.2f}%", f"₩{usd_profit:,.0f}")
 
-    total_stock_value = 0
-    total_invested = 0
-    stock_render_data = []
-
+# 주식 계산 (네이버 크롤러 사용)
+    total_stock_val = 0
+    total_stock_invested = 0
+    stock_list = []
     for item in portfolio_records:
-        current_price, price_change = get_market_data(item["ticker"])
-        if current_price is not None:
-            invested = item["buy_price"] * item["quantity"]
-            current_value = current_price * item["quantity"]
-            profit = current_value - invested
-            return_rate = (profit / invested) * 100 if invested > 0 else 0
-            
-            total_stock_value += current_value
-            total_invested += invested
-            
-            stock_render_data.append({
-                "item": item, "current_price": current_price, "price_change": price_change,
-                "profit": profit, "return_rate": return_rate, "current_value": current_value, "error": False
-            })
-        else:
-            stock_render_data.append({"item": item, "error": True})
+        cp, diff = get_naver_stock_data(item["ticker"]) # 👈 엔진 교체
+        if cp:
+            inv = item["buy_price"] * item["quantity"]
+            val = cp * item["quantity"]
+            total_stock_val += val
+            total_stock_invested += inv
+            stock_list.append({"item": item, "cp": cp, "diff": diff, "val": val, "profit": val-inv})
 
+    with st.expander(f"📈 주식 자산 (총 평가액: ₩{total_stock_val:,.0f})", expanded=False):
+        for s in stock_list:
+            st.write(f"**{s['item']['name']}**")
+            sc1, sc2, sc3, sc4 = st.columns(4)
+            sc1.metric("현재가", f"₩{s['cp']:,.0f}", f"{s['diff']:,.0f}")
+            sc2.metric("평단/수량", f"{s['item']['buy_price']:,.0f} / {s['item']['quantity']}주")
+            ret = (s['profit']/(s['item']['buy_price']*s['item']['quantity'])*100)
+            sc3.metric("수익률", f"{ret:,.2f}%", f"₩{s['profit']:,.0f}")
+            sc4.metric("평가액", f"₩{s['val']:,.0f}")
+
+    with st.container(border=True):
+        st.subheader("💰 오늘의 총 결혼 자금")
+        grand_total = krw_balance + usd_val_krw + total_stock_val
+        st.metric("합계 (현금 + 주식)", f"₩{grand_total:,.0f}")
+
+    records = sheet_history.get_all_records()
+    df_hist = pd.DataFrame(records)
+    today = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d')
+    if df_hist.empty or today not in df_hist['Date'].values:
+        sheet_history.append_row([today, grand_total])
+    else:
+        sheet_history.update_cell(len(df_hist)+1, 2, float(grand_total))
+    
+    st.write("##### 📊 자산 성장 추이")
+    df_hist['Date'] = pd.to_datetime(df_hist['Date'])
+    st.line_chart(df_hist.set_index('Date')['Total_Asset'])
     # UI 최적화: 아코디언 메뉴 깔끔하게 다듬기
     expander_title = f"📈 주식 자산 (총 평가액: ₩{total_stock_value:,.0f})"
     with st.expander(expander_title, expanded=False):
