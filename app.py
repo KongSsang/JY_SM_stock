@@ -8,22 +8,10 @@ from datetime import datetime
 import pytz
 import requests
 
-st.set_page_config(page_title="내 자산 포트폴리오", layout="wide")
+import config 
+
+st.set_page_config(page_title="결혼 자금 포트폴리오", layout="wide")
 st.title("📈 결혼 자금 관리 현황")
-
-# ==========================================
-# ⚙️ 설정 영역 (내 자산 및 시트 정보)
-# ==========================================
-SHEET_NAME = "Asset_history"  # 👈 본인이 만든 구글 스프레드시트 이름으로 꼭 변경해 주세요!
-
-krw_balance = 766872           # 👈 현재 보유 중인 원화(KRW)
-usd_balance = 3035.17     # 👈 현재 보유 중인 달러(USD)
-
-portfolio = [
-    {"name": "TIGER 200", "ticker": "102110.KS", "quantity": 6, "buy_price": 87366},
-    {"name": "TIGER 미국S&P500", "ticker": "360200.KS", "quantity": 20, "buy_price": 25005},
-    {"name": "TIGER 미국나스닥100", "ticker": "133690.KS", "quantity": 3, "buy_price": 164285},
-]
 
 # ==========================================
 # 📡 데이터 수집 (환율 이중화 처리)
@@ -76,7 +64,7 @@ def init_connection():
 
 try:
     client = init_connection()
-    sheet = client.open(SHEET_NAME).worksheet("History")
+    sheet = client.open(config.SHEET_NAME).worksheet("History")
 except Exception as e:
     st.error(f"구글 스프레드시트 연결 오류: {e}")
     st.stop()
@@ -84,24 +72,41 @@ except Exception as e:
 # ==========================================
 # 💵 자산 계산 및 화면 출력
 # ==========================================
-# 1. 현금 자산
+# 1. 현금 자산 (여러 번 구매한 달러 계산 로직 추가)
 current_usd_krw, usd_krw_change = get_exchange_rate()
 
+# 총 보유 달러와 환전에 들어간 총 원화 계산
+total_usd_amount = 0
+total_krw_invested_for_usd = 0
+
+for purchase in config.usd_purchases:
+    total_usd_amount += purchase["amount"]
+    total_krw_invested_for_usd += (purchase["buy_rate"] * purchase["amount"])
+
+# 평균 환전가 계산 (가중 평균)
+avg_usd_buy_rate = total_krw_invested_for_usd / total_usd_amount if total_usd_amount > 0 else 0
+
 st.header("💵 현금 자산 (USD & KRW)")
-usd_krw_value = usd_balance * current_usd_krw
-col1, col2, col3 = st.columns(3)
-col1.metric("보유 원화 (KRW)", f"₩{krw_balance:,.0f}")
-col2.metric("보유 달러 (USD)", f"${usd_balance:,.2f}")
-col3.metric("달러 원화 환산액", f"₩{usd_krw_value:,.0f}", f"환율: ₩{current_usd_krw:,.2f} (전일대비 {usd_krw_change:,.2f}원)")
+
+# 달러 환차익 계산 
+usd_current_krw = total_usd_amount * current_usd_krw
+usd_profit = usd_current_krw - total_krw_invested_for_usd
+usd_return_rate = (usd_profit / total_krw_invested_for_usd) * 100 if total_krw_invested_for_usd > 0 else 0
+
+col1, col2, col3, col4 = st.columns(4)
+col1.metric("보유 원화 (KRW)", f"₩{config.krw_balance:,.0f}")
+col2.metric("보유 달러 (USD)", f"${total_usd_amount:,.2f}", f"평균 환전가: ₩{avg_usd_buy_rate:,.0f}")
+col3.metric("달러 원화 환산액", f"₩{usd_current_krw:,.0f}", f"환율: ₩{current_usd_krw:,.2f} (전일대비 {usd_krw_change:,.2f}원)")
+col4.metric("달러 환차익 수익률", f"{usd_return_rate:,.2f}%", f"평가손익: ₩{usd_profit:,.0f}")
 
 st.divider()
 
-# 2. 주식 자산 (계산 먼저 수행)
+# 2. 주식 자산 
 total_stock_value = 0
 total_invested = 0
 stock_render_data = []
 
-for item in portfolio:
+for item in config.portfolio:
     current_price, price_change = get_market_data(item["ticker"])
     
     if current_price is not None:
@@ -113,7 +118,6 @@ for item in portfolio:
         total_stock_value += current_value
         total_invested += invested
         
-        # 화면에 그릴 데이터를 리스트에 임시 저장
         stock_render_data.append({
             "item": item,
             "current_price": current_price,
@@ -126,10 +130,8 @@ for item in portfolio:
     else:
         stock_render_data.append({"item": item, "error": True})
 
-# 주식 자산 (화면 출력 - 접기/펴기 기능 적용)
 expander_title = f"📊 주식 자산 (총 평가액: ₩{total_stock_value:,.0f})"
 
-# expanded=False 로 설정하여 기본적으로 접혀있도록 합니다.
 with st.expander(expander_title, expanded=False):
     for data in stock_render_data:
         if data["error"]:
@@ -148,7 +150,7 @@ st.divider()
 
 # 3. 총 자산 요약
 st.header("💰 오늘의 총 자산")
-grand_total = krw_balance + usd_krw_value + total_stock_value
+grand_total = config.krw_balance + usd_current_krw + total_stock_value
 total_profit = total_stock_value - total_invested
 total_return_rate = (total_profit / total_invested) * 100 if total_invested > 0 else 0
 
