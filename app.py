@@ -23,6 +23,25 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
+
+# === 애니메이션 불러오기 및 출력 ===
+def load_lottieurl(url: str):
+    r = requests.get(url)
+    if r.status_code != 200:
+        return None
+    return r.json()
+
+# 귀여운 하트 애니메이션 (URL은 언제든 다른 Lottie 이미지 주소로 바꿀 수 있습니다)
+lottie_heart = load_lottieurl("https://lottie.host/9e414c62-1b12-4217-bfbe-d40bafb43bc0/l5V6kU2bJ4.json")
+
+# 제목과 애니메이션을 나란히 배치하기
+col1, col2 = st.columns([1, 4])
+with col1:
+    if lottie_heart:
+        st_lottie(lottie_heart, height=100, key="heart")
+with col2:
+    st.write("") # 위치를 살짝 내리기 위한 빈 줄
+    st.title("💍 우리의 결혼 자금 & 데이트 관리")
 # ==========================================
 # ⚙️ 설정 영역
 # ==========================================
