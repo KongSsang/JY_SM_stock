@@ -183,10 +183,10 @@ actual_krw_balance = krw_balance
 # ==========================================
 # 📑 탭(Tab) 생성
 # ==========================================
-tab1, tab2, tab4, tab3 = st.tabs(["📊 자산 대시보드", "📝 자산 변동", "🏦 적금", "💕 데이트 비용"])
+tab1, tab2, tab4, tab3 = st.tabs(["📊 결혼자금 대시보드", "📝 결혼자금 변동", "🏦 적금", "💕 데이트 비용"])
 
 # ------------------------------------------
-# 탭 1: 자산 대시보드
+# 탭 1: 결혼자금 대시보드
 # ------------------------------------------
 with tab1:
     current_usd_krw, usd_krw_change = get_exchange_rate()
@@ -258,12 +258,12 @@ with tab1:
     st.write("")
     
     with st.container(border=True):
-        st.subheader("💰 오늘의 총 자산")
+        st.subheader("💰 오늘의 총 결혼자금")
         # 🌟 현금을 깎지 않고 외부에서 들어온 적금을 온전히 더해줍니다.
         grand_total = actual_krw_balance + total_active_savings + usd_current_krw + total_stock_value
         
         col_t1, col_t2 = st.columns(2)
-        col_t1.metric("총 자산 평가액 (현금+적금+주식)", f"₩{grand_total:,.0f}")
+        col_t1.metric("총 결혼자금 평가액 (현금+적금+주식)", f"₩{grand_total:,.0f}")
         
         yesterday_stock_value = total_stock_value - total_daily_profit
         daily_stock_return_rate = (total_daily_profit / yesterday_stock_value) * 100 if yesterday_stock_value > 0 else 0
@@ -284,16 +284,16 @@ with tab1:
         df_history.at[len(df_history)-1, 'Total_Asset'] = float(grand_total)
 
     if not df_history.empty:
-        st.write("##### 📊 총 자산 변동 추이")
+        st.write("##### 📊 총 결혼자금 변동 추이")
         df_history['Date'] = pd.to_datetime(df_history['Date'])
         df_history.set_index('Date', inplace=True)
         st.line_chart(df_history['Total_Asset'], use_container_width=True)
 
 # ------------------------------------------
-# 탭 2: 자산 변동 내역
+# 탭 2: 결혼자금 변동 내역
 # ------------------------------------------
 with tab2:
-    st.subheader("📝 우리의 자산 변동 기록장")
+    st.subheader("📝 우리의 결혼자금 변동 기록장")
     st.caption("💡 적금은 외부 자금에서 매월 지정일에 자동으로 누적되니 이곳에 기록하지 않으셔도 됩니다!")
     form_type = st.radio("어떤 내역을 기록할까요?", ["💰 원화 입출금", "💵 달러 환전", "📈 주식 매수"], horizontal=True)
     st.write("")
