@@ -189,8 +189,8 @@ with tab1:
 # 탭 2: 자산 변동 내역 
 # ------------------------------------------
 with tab2:
-    st.header("📝 우리 자산 변동 내역")
-    st.markdown("월급, 저축, 지출 등 자산이 변동된 내역을 직접 기록하고 함께 확인할 수 있는 공간입니다.")
+    st.header("📝 우리의 자산 변동 내역")
+    st.markdown("저축, 주식 매수 등 자산이 변동된 내역을 직접 기록하고 함께 확인할 수 있는 공간입니다.")
     
     with st.form("log_form", clear_on_submit=True):
         st.subheader("새로운 자산 내역 추가하기")
