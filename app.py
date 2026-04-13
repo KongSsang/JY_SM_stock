@@ -11,7 +11,7 @@ import requests
 import config 
 
 st.set_page_config(page_title="결혼 자금 포트폴리오", layout="wide")
-st.title("📈 결혼 자금 관리 현황")
+st.title("💍 결혼 자금 관리 현황")
 
 # ==========================================
 # 📡 데이터 수집 (환율 이중화 처리)
@@ -64,122 +64,163 @@ def init_connection():
 
 try:
     client = init_connection()
-    sheet = client.open(config.SHEET_NAME).worksheet("History")
+    sheet_history = client.open(config.SHEET_NAME).worksheet("History")
+    sheet_log = client.open(config.SHEET_NAME).worksheet("Log")  # 새로 추가한 기록용 시트 연결
 except Exception as e:
     st.error(f"구글 스프레드시트 연결 오류: {e}")
     st.stop()
 
+
 # ==========================================
-# 💵 자산 계산 및 화면 출력
+# 📑 탭(Tab) 생성
 # ==========================================
-# 1. 현금 자산 (여러 번 구매한 달러 계산 로직 추가)
-current_usd_krw, usd_krw_change = get_exchange_rate()
+tab1, tab2 = st.tabs(["📊 자산 대시보드", "📝 자산 변동 내역"])
 
-# 총 보유 달러와 환전에 들어간 총 원화 계산
-total_usd_amount = 0
-total_krw_invested_for_usd = 0
+# ------------------------------------------
+# 탭 1: 기존 자산 대시보드
+# ------------------------------------------
+with tab1:
+    # 1. 현금 자산
+    current_usd_krw, usd_krw_change = get_exchange_rate()
 
-for purchase in config.usd_purchases:
-    total_usd_amount += purchase["amount"]
-    total_krw_invested_for_usd += (purchase["buy_rate"] * purchase["amount"])
+    total_usd_amount = 0
+    total_krw_invested_for_usd = 0
 
-# 평균 환전가 계산 (가중 평균)
-avg_usd_buy_rate = total_krw_invested_for_usd / total_usd_amount if total_usd_amount > 0 else 0
+    for purchase in config.usd_purchases:
+        total_usd_amount += purchase["amount"]
+        total_krw_invested_for_usd += (purchase["buy_rate"] * purchase["amount"])
 
-st.header("💵 현금 자산 (USD & KRW)")
+    avg_usd_buy_rate = total_krw_invested_for_usd / total_usd_amount if total_usd_amount > 0 else 0
 
-# 달러 환차익 계산 
-usd_current_krw = total_usd_amount * current_usd_krw
-usd_profit = usd_current_krw - total_krw_invested_for_usd
-usd_return_rate = (usd_profit / total_krw_invested_for_usd) * 100 if total_krw_invested_for_usd > 0 else 0
+    st.header("💵 현금 자산 (USD & KRW)")
 
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("보유 원화 (KRW)", f"₩{config.krw_balance:,.0f}")
-col2.metric("보유 달러 (USD)", f"${total_usd_amount:,.2f}", f"평균 환전가: ₩{avg_usd_buy_rate:,.0f}")
-col3.metric("달러 원화 환산액", f"₩{usd_current_krw:,.0f}", f"환율: ₩{current_usd_krw:,.2f} (전일대비 {usd_krw_change:,.2f}원)")
-col4.metric("달러 환차익 수익률", f"{usd_return_rate:,.2f}%", f"평가손익: ₩{usd_profit:,.0f}")
+    usd_current_krw = total_usd_amount * current_usd_krw
+    usd_profit = usd_current_krw - total_krw_invested_for_usd
+    usd_return_rate = (usd_profit / total_krw_invested_for_usd) * 100 if total_krw_invested_for_usd > 0 else 0
 
-st.divider()
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("보유 원화 (KRW)", f"₩{config.krw_balance:,.0f}")
+    col2.metric("보유 달러 (USD)", f"${total_usd_amount:,.2f}", f"평균 환전가: ₩{avg_usd_buy_rate:,.0f}")
+    col3.metric("달러 원화 환산액", f"₩{usd_current_krw:,.0f}", f"환율: ₩{current_usd_krw:,.2f} (전일대비 {usd_krw_change:,.2f}원)")
+    col4.metric("달러 환차익 수익률", f"{usd_return_rate:,.2f}%", f"평가손익: ₩{usd_profit:,.0f}")
 
-# 2. 주식 자산 
-total_stock_value = 0
-total_invested = 0
-stock_render_data = []
+    st.divider()
 
-for item in config.portfolio:
-    current_price, price_change = get_market_data(item["ticker"])
-    
-    if current_price is not None:
-        invested = item["buy_price"] * item["quantity"]
-        current_value = current_price * item["quantity"]
-        profit = current_value - invested
-        return_rate = (profit / invested) * 100 if invested > 0 else 0
+    # 2. 주식 자산 
+    total_stock_value = 0
+    total_invested = 0
+    stock_render_data = []
+
+    for item in config.portfolio:
+        current_price, price_change = get_market_data(item["ticker"])
         
-        total_stock_value += current_value
-        total_invested += invested
-        
-        stock_render_data.append({
-            "item": item,
-            "current_price": current_price,
-            "price_change": price_change,
-            "profit": profit,
-            "return_rate": return_rate,
-            "current_value": current_value,
-            "error": False
-        })
-    else:
-        stock_render_data.append({"item": item, "error": True})
-
-expander_title = f"📊 주식 자산 (총 평가액: ₩{total_stock_value:,.0f})"
-
-with st.expander(expander_title, expanded=False):
-    for data in stock_render_data:
-        if data["error"]:
-            st.error(f"{data['item']['name']} 데이터를 불러올 수 없습니다.")
+        if current_price is not None:
+            invested = item["buy_price"] * item["quantity"]
+            current_value = current_price * item["quantity"]
+            profit = current_value - invested
+            return_rate = (profit / invested) * 100 if invested > 0 else 0
+            
+            total_stock_value += current_value
+            total_invested += invested
+            
+            stock_render_data.append({
+                "item": item,
+                "current_price": current_price,
+                "price_change": price_change,
+                "profit": profit,
+                "return_rate": return_rate,
+                "current_value": current_value,
+                "error": False
+            })
         else:
-            item = data["item"]
-            st.subheader(f"🔹 {item['name']}")
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("현재가", f"₩{data['current_price']:,.0f}", f"전일대비: {data['price_change']:,.0f}원")
-            c2.metric("평균단가 / 수량", f"₩{item['buy_price']:,.0f} / {item['quantity']}주")
-            c3.metric("수익률", f"{data['return_rate']:,.2f}%", f"평가손익: ₩{data['profit']:,.0f}")
-            c4.metric("현재 평가액", f"₩{data['current_value']:,.0f}")
-            st.write("") 
+            stock_render_data.append({"item": item, "error": True})
 
-st.divider()
+    expander_title = f"📊 주식 자산 (총 평가액: ₩{total_stock_value:,.0f})"
 
-# 3. 총 자산 요약
-st.header("💰 오늘의 총 자산")
-grand_total = config.krw_balance + usd_current_krw + total_stock_value
-total_profit = total_stock_value - total_invested
-total_return_rate = (total_profit / total_invested) * 100 if total_invested > 0 else 0
+    with st.expander(expander_title, expanded=False):
+        for data in stock_render_data:
+            if data["error"]:
+                st.error(f"{data['item']['name']} 데이터를 불러올 수 없습니다.")
+            else:
+                item = data["item"]
+                st.subheader(f"🔹 {item['name']}")
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("현재가", f"₩{data['current_price']:,.0f}", f"전일대비: {data['price_change']:,.0f}원")
+                c2.metric("평균단가 / 수량", f"₩{item['buy_price']:,.0f} / {item['quantity']}주")
+                c3.metric("수익률", f"{data['return_rate']:,.2f}%", f"평가손익: ₩{data['profit']:,.0f}")
+                c4.metric("현재 평가액", f"₩{data['current_value']:,.0f}")
+                st.write("") 
 
-col_t1, col_t2 = st.columns(2)
-col_t1.metric("총 자산 평가액 (현금 + 주식)", f"₩{grand_total:,.0f}")
-col_t2.metric("주식 총 평가손익", f"₩{total_profit:,.0f}", f"주식 총 수익률: {total_return_rate:,.2f}%")
+    st.divider()
 
-# ==========================================
-# 💾 데이터베이스(시트) 기록 및 그래프 출력
-# ==========================================
-st.divider()
-st.header("📈 나의 실제 총 자산 변동 추이")
+    # 3. 총 자산 요약
+    st.header("💰 오늘의 총 자산")
+    grand_total = config.krw_balance + usd_current_krw + total_stock_value
+    total_profit = total_stock_value - total_invested
+    total_return_rate = (total_profit / total_invested) * 100 if total_invested > 0 else 0
 
-kst = pytz.timezone('Asia/Seoul')
-today_str = datetime.now(kst).strftime('%Y-%m-%d')
+    col_t1, col_t2 = st.columns(2)
+    col_t1.metric("총 자산 평가액 (현금 + 주식)", f"₩{grand_total:,.0f}")
+    col_t2.metric("주식 총 평가손익", f"₩{total_profit:,.0f}", f"주식 총 수익률: {total_return_rate:,.2f}%")
 
-records = sheet.get_all_records()
-df_history = pd.DataFrame(records)
+    st.divider()
+    st.header("📈 나의 실제 총 자산 변동 추이")
 
-if df_history.empty or today_str not in df_history['Date'].values:
-    sheet.append_row([today_str, grand_total])
-    records = sheet.get_all_records()
+    kst = pytz.timezone('Asia/Seoul')
+    today_str = datetime.now(kst).strftime('%Y-%m-%d')
+
+    records = sheet_history.get_all_records()
     df_history = pd.DataFrame(records)
-else:
-    row_idx = len(records) + 1
-    sheet.update_cell(row_idx, 2, float(grand_total))
-    df_history.at[len(df_history)-1, 'Total_Asset'] = float(grand_total)
 
-if not df_history.empty:
-    df_history['Date'] = pd.to_datetime(df_history['Date'])
-    df_history.set_index('Date', inplace=True)
-    st.line_chart(df_history['Total_Asset'])
+    if df_history.empty or today_str not in df_history['Date'].values:
+        sheet_history.append_row([today_str, grand_total])
+        records = sheet_history.get_all_records()
+        df_history = pd.DataFrame(records)
+    else:
+        row_idx = len(records) + 1
+        sheet_history.update_cell(row_idx, 2, float(grand_total))
+        df_history.at[len(df_history)-1, 'Total_Asset'] = float(grand_total)
+
+    if not df_history.empty:
+        df_history['Date'] = pd.to_datetime(df_history['Date'])
+        df_history.set_index('Date', inplace=True)
+        st.line_chart(df_history['Total_Asset'])
+
+# ------------------------------------------
+# 탭 2: 자산 변동 내역 기록장 (여자친구와 공유)
+# ------------------------------------------
+with tab2:
+    st.header("📝 우리 자산 변동 내역")
+    st.markdown("월급, 저축, 지출 등 자산이 변동된 내역을 직접 기록하고 함께 확인할 수 있는 공간입니다.")
+    
+    # 기록 입력 폼 (Form)
+    with st.form("log_form", clear_on_submit=True):
+        st.subheader("새로운 내역 추가하기")
+        
+        c1, c2 = st.columns(2)
+        log_date = c1.date_input("날짜", datetime.now(pytz.timezone('Asia/Seoul')))
+        log_category = c2.selectbox("분류", ["입금 (저축/월급)", "출금 (데이트/장보기)", "주식 매수", "달러 환전", "기타"])
+        
+        c3, c4 = st.columns(2)
+        log_amount = c3.number_input("변동 금액 (원/달러 등)", step=10000)
+        log_memo = c4.text_input("상세 내용", placeholder="예: 4월 적금, 발리 여행 비행기표, 샤브샤브 장보기 등")
+        
+        submitted = st.form_submit_button("기록 추가하기")
+        if submitted:
+            # 구글 시트 Log 탭에 새로운 줄 추가
+            sheet_log.append_row([str(log_date), log_category, log_amount, log_memo])
+            st.success("내역이 성공적으로 기록되었습니다!")
+            st.rerun()  # 화면을 새로고침하여 즉시 표에 반영되도록 함
+
+    st.divider()
+    
+    # 전체 기록 보여주기
+    st.subheader("📋 전체 변동 내역")
+    log_records = sheet_log.get_all_records()
+    
+    if log_records:
+        df_log = pd.DataFrame(log_records)
+        # 데이터프레임을 예쁘게 출력
+        st.dataframe(df_log, use_container_width=True, hide_index=True)
+    else:
+        st.info("아직 기록된 내역이 없습니다. 위의 폼에서 첫 기록을 남겨보세요!")
