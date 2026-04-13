@@ -6,6 +6,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 from datetime import datetime
 import pytz
+import requests
 
 st.set_page_config(page_title="내 자산 포트폴리오", layout="wide")
 st.title("📈 결혼 자금 관리 현황")
@@ -25,7 +26,7 @@ portfolio = [
 ]
 
 # ==========================================
-# 📡 데이터 수집 및 구글 시트 연결
+# 📡 데이터 수집 (환율 이중화 처리)
 # ==========================================
 @st.cache_data(ttl=60)
 def get_market_data(ticker_symbol):
@@ -42,9 +43,31 @@ def get_market_data(ticker_symbol):
     except:
         return None, None
 
+@st.cache_data(ttl=60)
+def get_exchange_rate():
+    # 1. 야후 파이낸스 우선 시도 (KRW=X)
+    try:
+        hist = yf.Ticker("KRW=X").history(period='5d')
+        if len(hist) >= 2:
+            curr = float(hist['Close'].iloc[-1])
+            prev = float(hist['Close'].iloc[-2])
+            return curr, curr - prev
+    except:
+        pass
+    
+    # 2. 야후 실패 시 다른 무료 환율 API 예비 시도 (이 경우 전일대비 변동폭은 0으로 표기)
+    try:
+        url = "https://open.er-api.com/v6/latest/USD"
+        data = requests.get(url).json()
+        return float(data['rates']['KRW']), 0.0
+    except:
+        return 1350.0, 0.0 # 모든 연결 실패 시 최후의 보루
+
+# ==========================================
+# 🔑 구글 시트 연결
+# ==========================================
 @st.cache_resource
 def init_connection():
-    # Streamlit Secrets에 저장한 구글 키 불러오기
     creds_dict = json.loads(st.secrets["google_key"])
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets",
@@ -64,16 +87,14 @@ except Exception as e:
 # 💵 자산 계산 및 화면 출력
 # ==========================================
 # 1. 현금 자산
-current_usd_krw, usd_krw_change = get_market_data("USDKRW=X")
-if current_usd_krw is None:
-    current_usd_krw, usd_krw_change = 1350.0, 0.0
+current_usd_krw, usd_krw_change = get_exchange_rate()
 
 st.header("💵 현금 자산 (USD & KRW)")
 usd_krw_value = usd_balance * current_usd_krw
 col1, col2, col3 = st.columns(3)
 col1.metric("보유 원화 (KRW)", f"₩{krw_balance:,.0f}")
 col2.metric("보유 달러 (USD)", f"${usd_balance:,.2f}")
-col3.metric("달러 원화 환산액", f"₩{usd_krw_value:,.0f}", f"환율: ₩{current_usd_krw:,.2f} ({(usd_krw_change):,.2f}원)")
+col3.metric("달러 원화 환산액", f"₩{usd_krw_value:,.0f}", f"환율: ₩{current_usd_krw:,.2f} (전일대비 {usd_krw_change:,.2f}원)")
 
 st.divider()
 
@@ -122,27 +143,21 @@ col_t2.metric("주식 총 평가손익", f"₩{total_profit:,.0f}", f"주식 총
 st.divider()
 st.header("📈 나의 실제 총 자산 변동 추이")
 
-# 한국 시간 기준으로 오늘 날짜 구하기
 kst = pytz.timezone('Asia/Seoul')
 today_str = datetime.now(kst).strftime('%Y-%m-%d')
 
-# 구글 시트에서 전체 데이터 불러오기
 records = sheet.get_all_records()
 df_history = pd.DataFrame(records)
 
-# 오늘 날짜 기록이 없으면 새 줄 추가, 있으면 덮어쓰기 (실시간 반영)
 if df_history.empty or today_str not in df_history['Date'].values:
     sheet.append_row([today_str, grand_total])
-    # 추가 후 데이터 프레임 갱신
     records = sheet.get_all_records()
     df_history = pd.DataFrame(records)
 else:
-    # 이미 오늘 날짜가 있다면 현재 총액으로 값만 덮어쓰기 (주가 변동 반영)
-    row_idx = len(records) + 1  # 1번 행은 헤더이므로 +1
+    row_idx = len(records) + 1
     sheet.update_cell(row_idx, 2, float(grand_total))
     df_history.at[len(df_history)-1, 'Total_Asset'] = float(grand_total)
 
-# 그래프 그리기
 if not df_history.empty:
     df_history['Date'] = pd.to_datetime(df_history['Date'])
     df_history.set_index('Date', inplace=True)
