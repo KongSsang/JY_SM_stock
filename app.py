@@ -7,6 +7,7 @@ from google.oauth2.service_account import Credentials
 from datetime import datetime
 import pytz
 import requests
+import plotly.express as px  # 👈 예쁜 그래프를 그리기 위한 라이브러리 추가됨
 
 import config 
 
@@ -66,14 +67,14 @@ try:
     client = init_connection()
     sheet_history = client.open(config.SHEET_NAME).worksheet("History")
     sheet_log = client.open(config.SHEET_NAME).worksheet("Log")
-    sheet_date_log = client.open(config.SHEET_NAME).worksheet("Date_Log") # 👈 새로 추가한 데이트 기록용 시트
+    sheet_date_log = client.open(config.SHEET_NAME).worksheet("Date_Log")
 except Exception as e:
     st.error(f"구글 스프레드시트 연결 오류: {e}")
     st.stop()
 
 
 # ==========================================
-# 📑 탭(Tab) 생성 (3개로 확장)
+# 📑 탭(Tab) 생성 (3개)
 # ==========================================
 tab1, tab2, tab3 = st.tabs(["📊 자산 대시보드", "📝 자산 변동 내역", "💕 데이트 비용"])
 
@@ -220,12 +221,12 @@ with tab2:
         st.info("아직 기록된 내역이 없습니다. 위의 폼에서 첫 기록을 남겨보세요!")
 
 # ------------------------------------------
-# 탭 3: 데이트 비용 내역 (새로 추가됨)
+# 탭 3: 데이트 비용 통계 및 기록
 # ------------------------------------------
 with tab3:
-    st.header("💕 우리 데이트 비용 기록")
-    st.markdown("데이트 통장 입금 내역이나 식비, 데이트 지출 내역을 기록하는 공간입니다.")
+    st.header("💕 우리 데이트 비용 기록 및 통계")
     
+    # 👇 여기서부터 with st.form 안쪽은 스페이스바 4칸이 더 들어가야 합니다!
     with st.form("date_form", clear_on_submit=True):
         st.subheader("새로운 데이트 비용 추가하기")
         
@@ -235,4 +236,67 @@ with tab3:
         
         c3, c4 = st.columns(2)
         date_amount = c3.number_input("금액 (원)", step=10000, key="date_amt")
-        # 샤브
+        date_memo = c4.text_input("상세 내용", placeholder="예: 샤브샤브용 소고기 구입, 영화 예매 등", key="date_memo")
+        
+        # 👇 이 버튼 코드가 반드시 with st.form 안쪽으로 들여쓰기 되어야 에러가 안 납니다!
+        submitted_date = st.form_submit_button("데이트 기록 추가하기")
+        if submitted_date:
+            sheet_date_log.append_row([str(date_log_date), date_category, date_amount, date_memo])
+            st.success("데이트 비용 내역이 성공적으로 기록되었습니다!")
+            st.rerun()
+
+    st.divider()
+    
+    # === 데이트 비용 통계 및 그래프 ===
+    date_log_records = sheet_date_log.get_all_records()
+    
+    if date_log_records:
+        df_date_log = pd.DataFrame(date_log_records)
+        df_date_log['날짜'] = pd.to_datetime(df_date_log['날짜'])
+        df_date_log['금액'] = pd.to_numeric(df_date_log['금액'])
+        df_date_log['연월'] = df_date_log['날짜'].dt.strftime('%Y-%m') # 연-월 컬럼 생성
+        
+        st.subheader("📊 월별 데이트 지출 통계")
+        
+        # 월 선택 드롭다운 (가장 최근 달이 기본값)
+        month_list = sorted(df_date_log['연월'].unique(), reverse=True)
+        selected_month = st.selectbox("조회할 월을 선택하세요", month_list)
+        
+        # 선택한 월의 데이터만 필터링
+        monthly_df = df_date_log[df_date_log['연월'] == selected_month]
+        
+        # 입금과 지출 분리 계산
+        income_df = monthly_df[monthly_df['분류'] == "데이트 통장 입금"]
+        expense_df = monthly_df[monthly_df['분류'] != "데이트 통장 입금"]
+        
+        total_income = income_df['금액'].sum()
+        total_expense = expense_df['금액'].sum()
+        
+        col_s1, col_s2, col_s3 = st.columns(3)
+        col_s1.metric(f"{selected_month} 총 입금액", f"₩{total_income:,.0f}")
+        col_s2.metric(f"{selected_month} 총 지출액", f"₩{total_expense:,.0f}")
+        col_s3.metric("해당 월 잔액 증감", f"₩{(total_income - total_expense):,.0f}")
+        
+        # 지출 내역이 있을 경우에만 도넛 차트(파이 차트) 출력
+        if not expense_df.empty:
+            expense_summary = expense_df.groupby('분류')['금액'].sum().reset_index()
+            fig = px.pie(
+                expense_summary, 
+                values='금액', 
+                names='분류', 
+                hole=0.4, # 가운데가 뚫린 도넛 모양으로 설정
+                title=f"{selected_month} 카테고리별 지출 비율"
+            )
+            fig.update_traces(textposition='inside', textinfo='percent+label')
+            st.plotly_chart(fig, use_container_width=True)
+            
+        st.divider()
+        
+        # 전체 리스트 보여주기 (보기 좋게 문자열 변환)
+        st.subheader("📋 전체 데이트 비용 내역")
+        display_df = df_date_log.copy()
+        display_df['날짜'] = display_df['날짜'].dt.strftime('%Y-%m-%d')
+        st.dataframe(display_df[['날짜', '분류', '금액', '내용']], use_container_width=True, hide_index=True)
+        
+    else:
+        st.info("아직 기록된 내역이 없습니다. 위의 폼에서 첫 데이트 기록을 남겨보세요!")
