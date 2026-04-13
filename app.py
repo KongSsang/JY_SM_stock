@@ -2,91 +2,94 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 
-# 페이지 기본 설정
 st.set_page_config(page_title="내 자산 포트폴리오", layout="wide")
-st.title("📈 나의 자산 포트폴리오 대시보드")
+st.title("📈 나의 고정 자산 포트폴리오 대시보드")
 
-# --- 데이터 가져오기 함수 (캐싱 적용으로 속도 향상) ---
-@st.cache_data(ttl=60) # 1분마다 데이터 갱신
-def get_current_price(ticker_symbol):
-    try:
-        ticker = yf.Ticker(ticker_symbol)
-        todays_data = ticker.history(period='1d')
-        return todays_data['Close'].iloc[0]
-    except:
-        return None
+# --- 내 자산 데이터 고정 입력 ---
+usd_balance = 3035.17
 
+portfolio = [
+    {"name": "TIGER 200", "ticker": "102110.KS", "quantity": 6, "buy_price": 87366},
+    {"name": "TIGER 미국S&P500", "ticker": "360200.KS", "quantity": 20, "buy_price": 25005},
+    {"name": "TIGER 미국나스닥100", "ticker": "133690.KS", "quantity": 3, "buy_price": 164285},
+]
+
+# --- 데이터 가져오기 함수 (전일 대비 변동폭 포함) ---
 @st.cache_data(ttl=60)
-def get_exchange_rate():
+def get_market_data(ticker_symbol):
     try:
-        # 야후 파이낸스에서 원/달러 환율 가져오기
-        rate_data = yf.Ticker("USDKRW=X").history(period='1d')
-        return rate_data['Close'].iloc[0]
+        # 주말이나 휴장을 고려해 최근 5일치 데이터를 불러와서 최신 2일을 비교
+        ticker = yf.Ticker(ticker_symbol)
+        hist = ticker.history(period='5d') 
+        if len(hist) >= 2:
+            current_price = hist['Close'].iloc[-1]
+            prev_price = hist['Close'].iloc[-2]
+            return current_price, current_price - prev_price
+        elif len(hist) == 1:
+            return hist['Close'].iloc[0], 0
+        return None, None
     except:
-        return 1350.0 # API 통신 오류 시 임시 기본값
+        return None, None
 
-# --- 사이드바: 내 자산 및 주식 정보 입력 ---
-st.sidebar.header("💰 자산 정보 입력")
-krw_balance = st.sidebar.number_input("원화 보유액 (KRW)", value=1000000, step=10000)
-usd_balance = st.sidebar.number_input("달러 보유액 (USD)", value=1000.0, step=10.0)
+# --- 1. 현금(달러) 자산 출력 ---
+current_usd_krw, usd_krw_change = get_market_data("USDKRW=X")
+if current_usd_krw is None:
+    current_usd_krw, usd_krw_change = 1350.0, 0.0
 
-st.sidebar.divider()
-st.sidebar.subheader("📊 주식 정보")
-ticker = st.sidebar.text_input("주식 티커 (예: AAPL, MSFT)", value="AAPL").upper()
-buy_price = st.sidebar.number_input("평균 구매가 (USD)", value=150.0, step=1.0)
-quantity = st.sidebar.number_input("보유 수량", value=10.0, step=1.0)
+st.header("💵 현금 자산 (USD)")
+usd_krw_value = usd_balance * current_usd_krw
+col1, col2 = st.columns(2)
+col1.metric("보유 달러", f"${usd_balance:,.2f}")
+col2.metric(
+    "원화 환산액", 
+    f"₩{usd_krw_value:,.0f}", 
+    f"적용 환율: ₩{current_usd_krw:,.2f} (전일대비 {usd_krw_change:,.2f}원)"
+)
 
-# --- 메인 화면: 계산 및 출력 로직 ---
-if ticker:
-    current_price = get_current_price(ticker)
-    exchange_rate = get_exchange_rate()
+st.divider()
 
+# --- 2. 주식 자산 출력 ---
+st.header("📊 주식 자산")
+
+total_stock_value = 0
+total_invested = 0
+
+for item in portfolio:
+    current_price, price_change = get_market_data(item["ticker"])
+    
     if current_price is not None:
         # 수익률 및 평가액 계산
-        invested_usd = buy_price * quantity
-        current_stock_usd = current_price * quantity
-        profit_usd = current_stock_usd - invested_usd
-        return_rate = (profit_usd / invested_usd) * 100 if invested_usd > 0 else 0
-
-        # 총 자산 계산
-        total_usd_asset = usd_balance + current_stock_usd
-        total_krw_converted = total_usd_asset * exchange_rate
-        grand_total_krw = krw_balance + total_krw_converted
-
-        # 1. 환율 정보
-        st.subheader(f"현재 환율: ₩{exchange_rate:,.2f} / USD")
+        invested = item["buy_price"] * item["quantity"]
+        current_value = current_price * item["quantity"]
+        profit = current_value - invested
+        return_rate = (profit / invested) * 100 if invested > 0 else 0
         
-        # 2. 주식 수익률 요약 (컬럼 레이아웃)
-        col1, col2, col3 = st.columns(3)
-        col1.metric(
-            label=f"{ticker} 현재가", 
-            value=f"${current_price:,.2f}", 
-            delta=f"평단가 대비: ${(current_price - buy_price):,.2f}"
-        )
-        col2.metric(
-            label="주식 수익률", 
-            value=f"{return_rate:,.2f}%", 
-            delta=f"${profit_usd:,.2f}"
-        )
-        col3.metric(
-            label="현재 주식 평가액", 
-            value=f"${current_stock_usd:,.2f}"
-        )
+        total_stock_value += current_value
+        total_invested += invested
 
-        st.divider()
-
-        # 3. 총 잔고 요약
-        st.subheader("총 자산 요약")
-        c1, c2 = st.columns(2)
-        c1.metric(label="총 달러 자산 (현금 + 주식)", value=f"${total_usd_asset:,.2f}")
-        c2.metric(label="총 자산 원화 환산액 (기존 원화 포함)", value=f"₩{grand_total_krw:,.0f}")
-        
-        # 4. 데이터 시각화: 최근 1개월 주가 추이 그래프
-        st.divider()
-        st.subheader(f"최근 1개월 {ticker} 주가 추이")
-        history = yf.Ticker(ticker).history(period="1mo")
-        if not history.empty:
-            st.line_chart(history['Close'])
-
+        # 개별 주식 지표 출력
+        st.subheader(f"🔹 {item['name']}")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("현재가", f"₩{current_price:,.0f}", f"전일대비: {price_change:,.0f}원")
+        c2.metric("평균단가 / 수량", f"₩{item['buy_price']:,.0f} / {item['quantity']}주")
+        c3.metric("수익률", f"{return_rate:,.2f}%", f"평가손익: ₩{profit:,.0f}")
+        c4.metric("현재 평가액", f"₩{current_value:,.0f}")
+        st.write("") # 간격 띄우기
     else:
-        st.error("해당 주식 티커를 찾을 수 없거나 야후 파이낸스에서 데이터를 불러오지 못했습니다. 티커명을 확인해 주세요.")
+        st.error(f"{item['name']} 데이터를 불러올 수 없습니다.")
+
+st.divider()
+
+# --- 3. 총 자산 요약 ---
+st.header("💰 총 자산 요약")
+grand_total = usd_krw_value + total_stock_value
+total_profit = total_stock_value - total_invested
+total_return_rate = (total_profit / total_invested) * 100 if total_invested > 0 else 0
+
+col_t1, col_t2 = st.columns(2)
+col_t1.metric("총 자산 평가액 (현금 + 주식)", f"₩{grand_total:,.0f}")
+col_t2.metric(
+    "주식 총 평가손익", 
+    f"₩{total_profit:,.0f}", 
+    f"주식 총 수익률: {total_return_rate:,.2f}%"
+)
