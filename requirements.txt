@@ -7,3 +7,4 @@ pytz
 requests
 plotly
 streamlit-lottie
+beautifulsoup4
