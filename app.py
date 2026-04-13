@@ -10,6 +10,7 @@ import requests
 import plotly.express as px
 from streamlit_lottie import st_lottie  
 from bs4 import BeautifulSoup 
+import calendar # 👈 달력(적금 납입일) 계산용 추가
 
 st.set_page_config(page_title="결혼 자금 포트폴리오", page_icon="💍", layout="wide", initial_sidebar_state="collapsed")
 st.markdown("""
@@ -28,6 +29,10 @@ st.markdown("""
     [data-testid="stMetricValue"] {
         font-size: 1.8rem !important;
         font-weight: 700 !important;
+    }
+    /* 취소선 스타일 */
+    del {
+        color: #999;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -104,12 +109,14 @@ try:
     sheet_date_log = client.open(SHEET_NAME).worksheet("Date_Log")
     sheet_portfolio = client.open(SHEET_NAME).worksheet("Portfolio")
     sheet_cash = client.open(SHEET_NAME).worksheet("Cash") 
+    sheet_savings = client.open(SHEET_NAME).worksheet("Savings") # 👈 적금 시트 연결
 except Exception as e:
     st.error(f"구글 스프레드시트 연결 오류: {e}")
     st.stop()
 
 portfolio_records = sheet_portfolio.get_all_records()
 cash_records = sheet_cash.get_all_records()
+savings_records = sheet_savings.get_all_records()
 df_cash = pd.DataFrame(cash_records)
 
 krw_balance = 0
@@ -126,8 +133,63 @@ if not df_cash.empty:
     for _, row in usd_df.iterrows():
         usd_purchases.append({"amount": float(row['Amount']), "buy_rate": float(row['Rate'])})
 
-tab1, tab2, tab3 = st.tabs(["📊 자산 대시보드", "📝 자산 변동 내역", "💕 데이트 비용"])
+# === 🏦 적금 동적 계산 로직 ===
+today_dt = pd.to_datetime(datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d'))
+total_active_savings = 0
+savings_render_data = []
 
+def count_deposits(start_dt, target_dt, end_dt, day):
+    """시작일부터 목표일까지 지정된 이체일이 몇 번 지났는지 계산 (만기일 당일 및 이후는 제외)"""
+    c_year, c_month = start_dt.year, start_dt.month
+    cnt = 0
+    while True:
+        last_day = calendar.monthrange(c_year, c_month)[1]
+        d_day = min(day, last_day) # 31일이 없는 달 보정 (예: 2월)
+        d_date = pd.Timestamp(year=c_year, month=c_month, day=d_day)
+        
+        if d_date >= end_dt: break # 만기일 당일에는 납입하지 않음
+        if d_date > target_dt: break
+        if d_date >= start_dt: cnt += 1
+            
+        c_month += 1
+        if c_month > 12:
+            c_month = 1
+            c_year += 1
+    return cnt
+
+for idx, row in enumerate(savings_records):
+    start_dt = pd.to_datetime(row['start_date'])
+    end_dt = pd.to_datetime(row['end_date'])
+    
+    if row['status'] == '진행중':
+        target_dt = min(end_dt, today_dt)
+        passed_deposits = count_deposits(start_dt, target_dt, end_dt, row['deposit_day'])
+        total_expected_deposits = count_deposits(start_dt, end_dt, end_dt, row['deposit_day'])
+        
+        accumulated_amt = passed_deposits * row['monthly_amount']
+        total_active_savings += accumulated_amt
+        is_matured = today_dt >= end_dt
+        
+        savings_render_data.append({
+            "row_idx": idx + 2, "item": row, "accumulated": accumulated_amt,
+            "passed_deposits": passed_deposits, "total_expected": total_expected_deposits, "is_matured": is_matured
+        })
+    else:
+        savings_render_data.append({
+            "row_idx": idx + 2, "item": row, "accumulated": 0, "is_matured": True
+        })
+
+# 실제 사용 가능한 현금 (DB의 총 현금 - 진행 중인 적금 누적액)
+actual_krw_balance = krw_balance - total_active_savings
+
+# ==========================================
+# 📑 탭(Tab) 생성
+# ==========================================
+tab1, tab2, tab4, tab3 = st.tabs(["📊 자산 대시보드", "📝 자산 변동", "🏦 적금", "💕 데이트 비용"])
+
+# ------------------------------------------
+# 탭 1: 자산 대시보드
+# ------------------------------------------
 with tab1:
     current_usd_krw, usd_krw_change = get_exchange_rate()
     total_usd_amount = sum(p["amount"] for p in usd_purchases)
@@ -135,21 +197,20 @@ with tab1:
     avg_usd_buy_rate = total_krw_invested_for_usd / total_usd_amount if total_usd_amount > 0 else 0
 
     with st.container(border=True):
-        st.subheader("💵 현금 자산 (USD & KRW)")
+        st.subheader("💵 현금 및 적금 자산")
         usd_current_krw = total_usd_amount * current_usd_krw
         usd_profit = usd_current_krw - total_krw_invested_for_usd
         usd_return_rate = (usd_profit / total_krw_invested_for_usd) * 100 if total_krw_invested_for_usd > 0 else 0
 
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("보유 원화 (KRW)", f"₩{krw_balance:,.0f}")
-        col2.metric("보유 달러 (USD)", f"${total_usd_amount:,.2f}", f"평균 환전가: ₩{avg_usd_buy_rate:,.0f}")
-        col3.metric("달러 원화 환산액", f"₩{usd_current_krw:,.0f}", f"현재 환율: ₩{current_usd_krw:,.2f}")
-        col4.metric("달러 환차익 수익률", f"{usd_return_rate:,.2f}%", f"₩{usd_profit:,.0f}")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("사용 가능 현금", f"₩{actual_krw_balance:,.0f}")
+        c2.metric("적금 누적액", f"₩{total_active_savings:,.0f}", "자동 이체 반영됨")
+        c3.metric("보유 달러 (USD)", f"${total_usd_amount:,.2f}", f"평균: ₩{avg_usd_buy_rate:,.0f}")
+        c4.metric("달러 수익률", f"{usd_return_rate:,.2f}%", f"₩{usd_profit:,.0f}")
 
-    # 🌟 계산을 위해 당일 변동액 변수를 추가했습니다.
     total_stock_value = 0
     total_invested = 0
-    total_daily_profit = 0  # 👈 당일 전체 손익
+    total_daily_profit = 0  
     stock_render_data = []
 
     for item in portfolio_records:
@@ -159,12 +220,11 @@ with tab1:
             current_value = current_price * item["quantity"]
             profit = current_value - invested
             return_rate = (profit / invested) * 100 if invested > 0 else 0
-            
-            daily_profit = price_change * item["quantity"] # 개별 주식 당일 손익
+            daily_profit = price_change * item["quantity"] 
             
             total_stock_value += current_value
             total_invested += invested
-            total_daily_profit += daily_profit # 총 당일 손익 합산
+            total_daily_profit += daily_profit 
             
             stock_render_data.append({
                 "item": item, "current_price": current_price, "price_change": price_change,
@@ -201,16 +261,14 @@ with tab1:
     
     with st.container(border=True):
         st.subheader("💰 오늘의 총 자산")
-        grand_total = krw_balance + usd_current_krw + total_stock_value
+        # 총 자산 = 순수 현금 + 적금 원금 + 달러 가치 + 주식 가치
+        grand_total = actual_krw_balance + total_active_savings + usd_current_krw + total_stock_value
         
         col_t1, col_t2 = st.columns(2)
-        col_t1.metric("총 자산 평가액 (현금 + 주식)", f"₩{grand_total:,.0f}")
+        col_t1.metric("총 자산 평가액 (현금+적금+주식)", f"₩{grand_total:,.0f}")
         
-        # 🌟 수정한 부분: "오늘 하루 동안의 주식 변동"
         yesterday_stock_value = total_stock_value - total_daily_profit
         daily_stock_return_rate = (total_daily_profit / yesterday_stock_value) * 100 if yesterday_stock_value > 0 else 0
-        
-        # 델타(세 번째 값)에 숫자를 주면 알아서 위/아래 화살표를 예쁘게 렌더링해줍니다.
         col_t2.metric("오늘의 주식 손익 (전일대비)", f"₩{total_daily_profit:,.0f}", f"{daily_stock_return_rate:,.2f}%")
 
     kst = pytz.timezone('Asia/Seoul')
@@ -233,8 +291,12 @@ with tab1:
         df_history.set_index('Date', inplace=True)
         st.line_chart(df_history['Total_Asset'], use_container_width=True)
 
+# ------------------------------------------
+# 탭 2: 자산 변동 내역
+# ------------------------------------------
 with tab2:
     st.subheader("📝 우리의 자산 변동 기록장")
+    st.caption("💡 적금 이체는 매월 지정일에 현금 잔고에서 알아서 빠져나가니 여기에 따로 기록하지 않으셔도 됩니다!")
     form_type = st.radio("어떤 내역을 기록할까요?", ["💰 원화 입출금", "💵 달러 환전", "📈 주식 매수"], horizontal=True)
     st.write("")
 
@@ -246,7 +308,7 @@ with tab2:
                 inout_type = c2.selectbox("분류", ["입금 (저축/월급 등)", "출금 (지출)"], key="k_cat")
                 c3, c4 = st.columns(2)
                 log_amount = c3.number_input("금액 (원)", step=10000, key="k_amt")
-                log_memo = c4.text_input("메모", placeholder="예: 이번 달 결혼 자금 저축", key="k_memo")
+                log_memo = c4.text_input("메모", placeholder="예: 4월 월급", key="k_memo")
                 
                 if st.form_submit_button("기록 저장하기", use_container_width=True):
                     new_krw = krw_balance + log_amount if "입금" in inout_type else krw_balance - log_amount
@@ -257,7 +319,6 @@ with tab2:
 
         elif form_type == "💵 달러 환전":
             with st.form("usd_log_form", clear_on_submit=True, border=False):
-                st.caption("💡 원화 잔고에서 자동으로 차감됩니다.")
                 c1, c2 = st.columns(2)
                 usd_date = c1.date_input("날짜", datetime.now(pytz.timezone('Asia/Seoul')), key="u_date")
                 usd_amount = c2.number_input("환전 달러 (USD)", step=100.0, format="%.2f", key="u_amt")
@@ -275,7 +336,6 @@ with tab2:
 
         else: 
             with st.form("stock_buy_form", clear_on_submit=True, border=False):
-                st.caption("💡 원화 잔고에서 매수 금액이 자동으로 차감됩니다.")
                 c1, c2 = st.columns(2)
                 buy_date = c1.date_input("날짜", datetime.now(pytz.timezone('Asia/Seoul')), key="s_date")
                 buy_name = c2.text_input("종목명", placeholder="예: TIGER 미국S&P500", key="s_name")
@@ -310,23 +370,79 @@ with tab2:
 
     st.write("")
     log_records = sheet_log.get_all_records()
-    
     if log_records:
         df_log = pd.DataFrame(log_records).sort_values(by='날짜', ascending=False)
-        st.dataframe(
-            df_log, 
-            use_container_width=True, 
-            hide_index=True,
-            column_config={
-                "금액": st.column_config.NumberColumn("금액", format="₩ %d")
-            }
-        )
-    else:
-        st.info("아직 기록된 내역이 없습니다.")
+        st.dataframe(df_log, use_container_width=True, hide_index=True, column_config={"금액": st.column_config.NumberColumn("금액", format="₩ %d")})
 
+# ------------------------------------------
+# 탭 4: 적금 (Savings)
+# ------------------------------------------
+with tab4:
+    st.subheader("🏦 우리의 적금 현황")
+    
+    with st.expander("➕ 새로운 적금 추가하기", expanded=False):
+        with st.form("add_savings_form", clear_on_submit=True):
+            s_name = st.text_input("적금 이름", placeholder="예: 신혼여행 적금")
+            c1, c2 = st.columns(2)
+            s_start = c1.date_input("적금 가입일 (첫 입금일)")
+            s_end = c2.date_input("적금 만기일")
+            
+            c3, c4 = st.columns(2)
+            s_amt = c3.number_input("매월 납입액 (원)", min_value=0, step=100000)
+            s_day = c4.number_input("매월 이체일 (며칠?)", min_value=1, max_value=31, step=1)
+            
+            if st.form_submit_button("적금 등록", use_container_width=True):
+                if not s_name:
+                    st.error("적금 이름을 입력해주세요.")
+                else:
+                    sheet_savings.append_row([s_name, str(s_start), str(s_end), s_day, s_amt, '진행중'])
+                    st.toast("적금이 등록되었습니다! 매월 자동으로 계산됩니다.", icon='🏦')
+                    st.rerun()
+
+    st.divider()
+
+    if not savings_render_data:
+        st.info("현재 등록된 적금이 없습니다. 위의 버튼을 눌러 추가해보세요!")
+    else:
+        for data in savings_render_data:
+            item = data['item']
+            if item['status'] == '진행중':
+                if data['is_matured']:
+                    # 만기 도래 폼
+                    with st.container(border=True):
+                        st.markdown(f"### 🎉 {item['name']} (만기 도래!)")
+                        st.write(f"그동안 고생 많으셨습니다! 총 **{data['total_expected']}회** 납입이 완료되었습니다. (납입 원금: ₩{data['accumulated']:,.0f})")
+                        
+                        with st.form(f"mature_form_{data['row_idx']}"):
+                            rec_amt = st.number_input("만기 수령액 입력 (원금 + 이자 모두 포함)", value=data['accumulated'], step=10000)
+                            if st.form_submit_button("💰 수령하여 현금에 합산하기"):
+                                interest = rec_amt - data['accumulated']
+                                # 1. 현금 시트에 '수령액(원금+이자)'을 더해줍니다 (DB의 총 현금을 늘림)
+                                sheet_cash.update_cell(krw_row_idx, 2, krw_balance + rec_amt)
+                                # 2. 적금 상태 변경
+                                sheet_savings.update_cell(data['row_idx'], 6, '만기완료')
+                                # 3. 로그 남기기
+                                sheet_log.append_row([str(today_dt.date()), "적금 만기", rec_amt, f"[{item['name']}] 만기 수령 (이자 수익: {interest:,.0f}원)"])
+                                st.toast("축하합니다! 만기액이 현금 자산에 합산되었습니다.", icon='🎉')
+                                st.rerun()
+                else:
+                    # 진행 중인 적금 표시
+                    with st.container(border=True):
+                        st.markdown(f"### ⏳ {item['name']}")
+                        c1, c2, c3 = st.columns(3)
+                        c1.metric("납입 횟수", f"{data['passed_deposits']} / {data['total_expected']} 회")
+                        c2.metric("현재 납입 원금", f"₩{data['accumulated']:,.0f}")
+                        c3.metric("매월 납입액", f"₩{item['monthly_amount']:,.0f}", f"매월 {item['deposit_day']}일 이체")
+                        st.caption(f"📅 만기일: {item['end_date']}")
+            else:
+                # 만기 완료된 적금 (취소선)
+                st.markdown(f"#### <del>{item['name']} (만기 완료)</del>", unsafe_allow_html=True)
+
+# ------------------------------------------
+# 탭 3: 데이트 비용
+# ------------------------------------------
 with tab3:
     st.subheader("💕 우리의 데이트 비용")
-    
     with st.container(border=True):
         with st.form("date_form", clear_on_submit=True, border=False):
             c1, c2 = st.columns(2)
@@ -335,7 +451,6 @@ with tab3:
             c3, c4 = st.columns(2)
             date_amount = c3.number_input("지출 금액 (원)", step=1000, key="date_amt")
             date_memo = c4.text_input("어떤 데이트였나요?", placeholder="예: 맛있는 샤브샤브 먹은 날 🍲", key="date_memo")
-            
             if st.form_submit_button("데이트 지출 기록하기", use_container_width=True):
                 sheet_date_log.append_row([str(date_log_date), date_category, date_amount, date_memo])
                 st.toast('즐거운 데이트 기록이 추가되었습니다! 💖', icon='💑')
@@ -343,7 +458,6 @@ with tab3:
 
     st.write("")
     date_log_records = sheet_date_log.get_all_records()
-    
     if date_log_records:
         df_date_log = pd.DataFrame(date_log_records)
         df_date_log['날짜'] = pd.to_datetime(df_date_log['날짜'])
@@ -376,7 +490,6 @@ with tab3:
                 
             st.write("##### 🗓️ 주차별 상세 내역")
             weekly_summary = monthly_df.groupby(['주_시작일', '주간_표시'])['금액'].sum().reset_index().sort_values(by='주_시작일', ascending=False)
-            
             for _, row in weekly_summary.iterrows():
                 week_label = row['주간_표시']
                 week_total = row['금액']
@@ -385,11 +498,6 @@ with tab3:
                     display_week_df = week_data[['날짜', '분류', '금액', '내용']].copy()
                     display_week_df['날짜'] = display_week_df['날짜'].dt.strftime('%Y-%m-%d')
                     st.dataframe(
-                        display_week_df, 
-                        use_container_width=True, hide_index=True,
+                        display_week_df, use_container_width=True, hide_index=True,
                         column_config={"금액": st.column_config.NumberColumn("금액", format="₩ %d")}
                     )
-        else:
-            st.info("지출 내역이 없습니다.")
-    else:
-        st.info("아직 첫 데이트 기록이 없네요! 폼을 작성해 볼까요? ✨")
