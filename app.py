@@ -11,7 +11,6 @@ import plotly.express as px
 
 # 페이지 여백을 줄이고 더 넓게 쓰기 위한 설정 추가
 st.set_page_config(page_title="결혼 자금 포트폴리오", page_icon="💍", layout="wide", initial_sidebar_state="collapsed")
-st.title("💍 우리의 결혼 자금 & 데이트 관리")
 st.markdown("""
 <style>
     /* 폰트 불러오기 */
@@ -32,7 +31,7 @@ def load_lottieurl(url: str):
     return r.json()
 
 # 귀여운 하트 애니메이션 (URL은 언제든 다른 Lottie 이미지 주소로 바꿀 수 있습니다)
-lottie_heart = load_lottieurl("https://lottie.host/9e414c62-1b12-4217-bfbe-d40bafb43bc0/l5V6kU2bJ4.json")
+lottie_heart = load_lottieurl("https://lottie.host/0a300676-9ceb-4f2f-87a1-4321fb9669ce/IkBGyzReWa.lottie")
 
 # 제목과 애니메이션을 나란히 배치하기
 col1, col2 = st.columns([1, 4])
