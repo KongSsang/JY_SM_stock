@@ -7,7 +7,7 @@ from google.oauth2.service_account import Credentials
 from datetime import datetime
 import pytz
 import requests
-import plotly.express as px  # 👈 예쁜 그래프를 그리기 위한 라이브러리 추가됨
+import plotly.express as px
 
 import config 
 
@@ -226,23 +226,22 @@ with tab2:
 with tab3:
     st.header("💕 우리 데이트 비용 기록 및 통계")
     
-    # 👇 여기서부터 with st.form 안쪽은 스페이스바 4칸이 더 들어가야 합니다!
     with st.form("date_form", clear_on_submit=True):
-        st.subheader("새로운 데이트 비용 추가하기")
+        st.subheader("새로운 데이트 지출 추가하기")
         
         c1, c2 = st.columns(2)
         date_log_date = c1.date_input("날짜", datetime.now(pytz.timezone('Asia/Seoul')), key="date_log_date")
-        date_category = c2.selectbox("분류", ["식비 (식당/카페)", "문화생활 (영화/전시)", "교통/숙박", "쇼핑/선물", "데이트 통장 입금", "기타"], key="date_cat")
+        # 👈 입금 카테고리 제거 완료
+        date_category = c2.selectbox("분류", ["식비 (식당/카페)", "문화생활 (영화/전시)", "교통/숙박", "쇼핑/선물", "기타"], key="date_cat")
         
         c3, c4 = st.columns(2)
-        date_amount = c3.number_input("금액 (원)", step=10000, key="date_amt")
+        date_amount = c3.number_input("지출 금액 (원)", step=1000, key="date_amt")
         date_memo = c4.text_input("상세 내용", placeholder="예: 샤브샤브용 소고기 구입, 영화 예매 등", key="date_memo")
         
-        # 👇 이 버튼 코드가 반드시 with st.form 안쪽으로 들여쓰기 되어야 에러가 안 납니다!
-        submitted_date = st.form_submit_button("데이트 기록 추가하기")
+        submitted_date = st.form_submit_button("지출 기록 추가하기")
         if submitted_date:
             sheet_date_log.append_row([str(date_log_date), date_category, date_amount, date_memo])
-            st.success("데이트 비용 내역이 성공적으로 기록되었습니다!")
+            st.success("데이트 지출 내역이 성공적으로 기록되었습니다!")
             st.rerun()
 
     st.divider()
@@ -254,49 +253,66 @@ with tab3:
         df_date_log = pd.DataFrame(date_log_records)
         df_date_log['날짜'] = pd.to_datetime(df_date_log['날짜'])
         df_date_log['금액'] = pd.to_numeric(df_date_log['금액'])
-        df_date_log['연월'] = df_date_log['날짜'].dt.strftime('%Y-%m') # 연-월 컬럼 생성
         
-        st.subheader("📊 월별 데이트 지출 통계")
+        # 혹시 예전에 입력된 "데이트 통장 입금" 기록이 있다면 화면과 계산에서 무시
+        df_date_log = df_date_log[df_date_log['분류'] != "데이트 통장 입금"]
         
-        # 월 선택 드롭다운 (가장 최근 달이 기본값)
-        month_list = sorted(df_date_log['연월'].unique(), reverse=True)
-        selected_month = st.selectbox("조회할 월을 선택하세요", month_list)
-        
-        # 선택한 월의 데이터만 필터링
-        monthly_df = df_date_log[df_date_log['연월'] == selected_month]
-        
-        # 입금과 지출 분리 계산
-        income_df = monthly_df[monthly_df['분류'] == "데이트 통장 입금"]
-        expense_df = monthly_df[monthly_df['분류'] != "데이트 통장 입금"]
-        
-        total_income = income_df['금액'].sum()
-        total_expense = expense_df['금액'].sum()
-        
-        col_s1, col_s2, col_s3 = st.columns(3)
-        col_s1.metric(f"{selected_month} 총 입금액", f"₩{total_income:,.0f}")
-        col_s2.metric(f"{selected_month} 총 지출액", f"₩{total_expense:,.0f}")
-        col_s3.metric("해당 월 잔액 증감", f"₩{(total_income - total_expense):,.0f}")
-        
-        # 지출 내역이 있을 경우에만 도넛 차트(파이 차트) 출력
-        if not expense_df.empty:
-            expense_summary = expense_df.groupby('분류')['금액'].sum().reset_index()
-            fig = px.pie(
-                expense_summary, 
-                values='금액', 
-                names='분류', 
-                hole=0.4, # 가운데가 뚫린 도넛 모양으로 설정
-                title=f"{selected_month} 카테고리별 지출 비율"
-            )
-            fig.update_traces(textposition='inside', textinfo='percent+label')
-            st.plotly_chart(fig, use_container_width=True)
+        if not df_date_log.empty:
+            # 1. 월별 통계 분석을 위한 처리
+            df_date_log['연월'] = df_date_log['날짜'].dt.strftime('%Y-%m') 
             
-        st.divider()
-        
-        # 전체 리스트 보여주기 (보기 좋게 문자열 변환)
-        st.subheader("📋 전체 데이트 비용 내역")
-        display_df = df_date_log.copy()
-        display_df['날짜'] = display_df['날짜'].dt.strftime('%Y-%m-%d')
-        st.dataframe(display_df[['날짜', '분류', '금액', '내용']], use_container_width=True, hide_index=True)
-        
+            # 2. 월요일~일요일 주간 묶음 계산 (판다스 기능 활용)
+            df_date_log['주_시작일'] = df_date_log['날짜'] - pd.to_timedelta(df_date_log['날짜'].dt.weekday, unit='D')
+            df_date_log['주_종료일'] = df_date_log['주_시작일'] + pd.Timedelta(days=6)
+            df_date_log['주간_표시'] = df_date_log['주_시작일'].dt.strftime('%m/%d') + " ~ " + df_date_log['주_종료일'].dt.strftime('%m/%d')
+            
+            st.subheader("📊 데이트 지출 통계")
+            
+            # 월 선택 드롭다운
+            month_list = sorted(df_date_log['연월'].unique(), reverse=True)
+            selected_month = st.selectbox("조회할 월을 선택하세요", month_list)
+            
+            # 선택한 월의 데이터 필터링
+            monthly_df = df_date_log[df_date_log['연월'] == selected_month]
+            total_expense = monthly_df['금액'].sum()
+            
+            st.metric(f"{selected_month} 총 지출액", f"₩{total_expense:,.0f}")
+            
+            if not monthly_df.empty:
+                # 도넛 차트
+                expense_summary = monthly_df.groupby('분류')['금액'].sum().reset_index()
+                fig = px.pie(
+                    expense_summary, 
+                    values='금액', 
+                    names='분류', 
+                    hole=0.4, 
+                    title=f"{selected_month} 카테고리별 지출 비율"
+                )
+                fig.update_traces(textposition='inside', textinfo='percent+label')
+                st.plotly_chart(fig, use_container_width=True)
+                
+            st.divider()
+            
+            # 3. 주차별 리스트 출력 (월화수목금토일 묶음)
+            st.subheader(f"🗓️ {selected_month} 주차별 상세 내역")
+            
+            # 해당 월의 데이터를 '주_시작일' 기준으로 묶어서 합계 계산 후 내림차순 정렬
+            weekly_summary = monthly_df.groupby(['주_시작일', '주간_표시'])['금액'].sum().reset_index()
+            weekly_summary = weekly_summary.sort_values(by='주_시작일', ascending=False)
+            
+            # 각 주차별로 아코디언(expander) 생성
+            for _, row in weekly_summary.iterrows():
+                week_label = row['주간_표시']
+                week_total = row['금액']
+                
+                with st.expander(f"📅 {week_label} 지출 합계: ₩{week_total:,.0f}", expanded=True):
+                    # 해당 주간의 내역만 뽑아와서 출력
+                    week_data = monthly_df[monthly_df['주간_표시'] == week_label].sort_values(by='날짜', ascending=False)
+                    display_week_df = week_data[['날짜', '분류', '금액', '내용']].copy()
+                    display_week_df['날짜'] = display_week_df['날짜'].dt.strftime('%Y-%m-%d')
+                    st.dataframe(display_week_df, use_container_width=True, hide_index=True)
+                    
+        else:
+            st.info("지출 내역이 없습니다.")
     else:
         st.info("아직 기록된 내역이 없습니다. 위의 폼에서 첫 데이트 기록을 남겨보세요!")
