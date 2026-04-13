@@ -8,6 +8,7 @@ from datetime import datetime
 import pytz
 import requests
 import plotly.express as px
+from streamlit_lottie import st_lottie  # 👈 애니메이션용 라이브러리 추가
 
 # 페이지 여백을 줄이고 더 넓게 쓰기 위한 설정 추가
 st.set_page_config(page_title="결혼 자금 포트폴리오", page_icon="💍", layout="wide", initial_sidebar_state="collapsed")
