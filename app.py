@@ -66,21 +66,41 @@ SHEET_NAME = "Asset_history"
 # ==========================================
 # 📡 데이터 수집
 # ==========================================
+# ==========================================
+# 📡 [New] 네이버 증권 실시간 크롤러 엔진
+# ==========================================
 @st.cache_data(ttl=60)
-def get_market_data(ticker_symbol):
+def get_naver_stock_data(ticker_symbol):
+    """네이버 증권에서 실시간 주가와 전일대비 변동폭을 크롤링합니다."""
+    # Yahoo 티커(102110.KS)에서 숫자만 추출(102110)
+    code = ticker_symbol.split('.')[0]
+    
+    url = f"https://finance.naver.com/item/main.naver?code={code}"
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
+    
     try:
-        ticker = yf.Ticker(ticker_symbol)
-        hist = ticker.history(period='5d') 
-        if len(hist) >= 2:
-            current_price = float(hist['Close'].iloc[-1])
-            prev_price = float(hist['Close'].iloc[-2])
-            return current_price, current_price - prev_price
-        elif len(hist) == 1:
-            return float(hist['Close'].iloc[0]), 0.0
-        return None, None
+        response = requests.get(url, headers=headers)
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # 현재가 추출
+        price_tag = soup.select_one(".no_today .blind")
+        if not price_tag: return None, None
+        current_price = int(price_tag.text.replace(',', ''))
+        
+        # 전일대비 변동폭 추출
+        diff_tag = soup.select_one(".no_exday .blind")
+        diff_text = diff_tag.text.replace(',', '')
+        
+        # 상승/하락 여부 판단 (아이콘 확인)
+        ico = soup.select_one(".no_exday em span")
+        if ico and "하락" in ico.text:
+            change = -int(diff_text)
+        else:
+            change = int(diff_text)
+            
+        return current_price, change
     except:
         return None, None
-
 @st.cache_data(ttl=60)
 def get_exchange_rate():
     try:
