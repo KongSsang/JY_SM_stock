@@ -1,44 +1,12 @@
 import streamlit as st
 import yfinance as yf
+import pandas as pd
 
-# --- 📱 모바일 UI 최적화 설정 ---
-st.set_page_config(page_title="내 자산 포트폴리오", page_icon="💸", layout="centered")
+st.set_page_config(page_title="내 자산 포트폴리오", layout="wide")
+st.title("📈 나의 고정 자산 포트폴리오 대시보드")
 
-# 커스텀 CSS 적용 (앱 느낌의 카드 디자인 및 여백 조정)
-st.markdown("""
-<style>
-    /* 전체 배경과 폰트 최적화 */
-    .block-container {
-        padding-top: 2rem;
-        padding-bottom: 5rem;
-        max-width: 600px; /* 모바일/태블릿에 맞춘 최대 너비 */
-    }
-    
-    /* 카드 디자인 */
-    .asset-card {
-        background-color: #ffffff;
-        padding: 20px;
-        border-radius: 15px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-        margin-bottom: 15px;
-        border: 1px solid #f0f2f6;
-    }
-    
-    /* 제목 스타일 */
-    .main-title {
-        text-align: center;
-        font-weight: 800;
-        color: #1e1e1e;
-        margin-bottom: 20px;
-    }
-    
-    /* 수익률 텍스트 색상 규칙을 위한 꼼수 (Streamlit metric 기본 의존) */
-</style>
-""", unsafe_allow_html=True)
-
-st.markdown('<h2 class="main-title">📈 나의 자산 대시보드</h2>', unsafe_allow_html=True)
-
-# --- 자산 데이터 고정 입력 ---
+# --- 내 자산 데이터 고정 입력 ---
+krw_balance = 0  # 👈 여기에 현재 보유 중인 원화(KRW) 금액을 입력하세요 (예: 1500000)
 usd_balance = 3035.17
 
 portfolio = [
@@ -47,93 +15,97 @@ portfolio = [
     {"name": "TIGER 미국나스닥100", "ticker": "133690.KS", "quantity": 3, "buy_price": 164285},
 ]
 
-# --- 데이터 가져오기 함수 ---
-@st.cache_data(ttl=60)
-def get_market_data(ticker_symbol):
+# --- 최근 3개월 데이터 한 번에 가져오기 ---
+@st.cache_data(ttl=600) # 10분마다 데이터 갱신
+def fetch_historical_data():
+    df = pd.DataFrame()
+    
     try:
-        ticker = yf.Ticker(ticker_symbol)
-        hist = ticker.history(period='5d') 
-        if len(hist) >= 2:
-            current_price = hist['Close'].iloc[-1]
-            prev_price = hist['Close'].iloc[-2]
-            return current_price, current_price - prev_price
-        elif len(hist) == 1:
-            return hist['Close'].iloc[0], 0
-        return None, None
-    except:
-        return None, None
-
-# --- 데이터 계산 및 렌더링 ---
-current_usd_krw, usd_krw_change = get_market_data("USDKRW=X")
-if current_usd_krw is None:
-    current_usd_krw, usd_krw_change = 1350.0, 0.0
-
-total_stock_value = 0
-total_invested = 0
-
-# --- 1. 총 자산 요약 (맨 위로 배치하여 한눈에 보이게) ---
-st.markdown("### 💰 총 자산 요약")
-summary_container = st.container()
-
-# 개별 주식 계산 (총합을 먼저 구하기 위해 루프를 미리 돕니다)
-stock_results = []
-for item in portfolio:
-    current_price, price_change = get_market_data(item["ticker"])
-    if current_price is not None:
-        invested = item["buy_price"] * item["quantity"]
-        current_value = current_price * item["quantity"]
-        profit = current_value - invested
-        return_rate = (profit / invested) * 100 if invested > 0 else 0
+        # 환율 데이터 (원/달러)
+        df['USDKRW'] = yf.Ticker("USDKRW=X").history(period="3mo")['Close']
         
-        total_stock_value += current_value
+        # 주식 데이터
+        for item in portfolio:
+            df[item['ticker']] = yf.Ticker(item['ticker']).history(period="3mo")['Close']
+            
+        # 휴장일(주말 등) 결측치를 이전 날짜 가격으로 채우기
+        df = df.ffill().dropna()
+        
+        # 스트림릿 그래프 오류 방지를 위해 시간대(Timezone) 정보 제거
+        df.index = df.index.tz_localize(None)
+        return df
+    except:
+        return pd.DataFrame()
+
+history_df = fetch_historical_data()
+
+# --- 데이터 계산 및 화면 출력 ---
+if not history_df.empty:
+    # 가장 최근일과 그 전일 데이터 추출
+    curr_usd = history_df['USDKRW'].iloc[-1]
+    prev_usd = history_df['USDKRW'].iloc[-2]
+    
+    # 1. 현금 자산 출력
+    st.header("💵 현금 자산")
+    col1, col2, col3 = st.columns(3)
+    col1.metric("보유 원화 (KRW)", f"₩{krw_balance:,.0f}")
+    col2.metric("보유 달러 (USD)", f"${usd_balance:,.2f}")
+    col3.metric("달러 원화 환산액", f"₩{usd_balance * curr_usd:,.0f}", f"환율: ₩{curr_usd:,.2f} ({(curr_usd - prev_usd):,.2f}원)")
+    
+    st.divider()
+    
+    # 2. 주식 자산 출력
+    st.header("📊 주식 자산")
+    
+    total_stock_value = 0
+    total_invested = 0
+    
+    for item in portfolio:
+        ticker = item['ticker']
+        curr_price = history_df[ticker].iloc[-1]
+        prev_price = history_df[ticker].iloc[-2]
+        
+        invested = item['buy_price'] * item['quantity']
+        curr_val = curr_price * item['quantity']
+        profit = curr_val - invested
+        ret_rate = (profit / invested) * 100 if invested > 0 else 0
+        
+        total_stock_value += curr_val
         total_invested += invested
         
-        stock_results.append({
-            "name": item["name"],
-            "current_price": current_price,
-            "price_change": price_change,
-            "buy_price": item["buy_price"],
-            "quantity": item["quantity"],
-            "profit": profit,
-            "return_rate": return_rate,
-            "current_value": current_value
-        })
-
-# 총합 계산
-usd_krw_value = usd_balance * current_usd_krw
-grand_total = usd_krw_value + total_stock_value
-total_profit = total_stock_value - total_invested
-total_return_rate = (total_profit / total_invested) * 100 if total_invested > 0 else 0
-
-with summary_container:
-    st.markdown('<div class="asset-card">', unsafe_allow_html=True)
-    c1, c2 = st.columns(2)
-    c1.metric("총 자산 평가액", f"₩{grand_total:,.0f}")
-    c2.metric("주식 총 손익", f"₩{total_profit:,.0f}", f"{total_return_rate:,.2f}%")
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# --- 2. 주식 상세 내역 ---
-st.markdown("### 📊 보유 주식")
-for res in stock_results:
-    st.markdown('<div class="asset-card">', unsafe_allow_html=True)
-    st.markdown(f"**{res['name']}**")
-    
-    # 모바일에선 2단 컬럼이 가장 깔끔합니다
-    col1, col2 = st.columns(2)
-    with col1:
-        st.metric("현재가", f"₩{res['current_price']:,.0f}", f"전일대비 {res['price_change']:,.0f}원")
-    with col2:
-        st.metric("평가액 (수익률)", f"₩{res['current_value']:,.0f}", f"{res['return_rate']:,.2f}% ({res['profit']:,.0f}원)")
+        st.subheader(f"🔹 {item['name']}")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("현재가", f"₩{curr_price:,.0f}", f"전일대비: {(curr_price - prev_price):,.0f}원")
+        c2.metric("평균단가 / 수량", f"₩{item['buy_price']:,.0f} / {item['quantity']}주")
+        c3.metric("수익률", f"{ret_rate:,.2f}%", f"평가손익: ₩{profit:,.0f}")
+        c4.metric("현재 평가액", f"₩{curr_val:,.0f}")
+        st.write("") 
         
-    st.caption(f"평균단가: ₩{res['buy_price']:,.0f} | 보유수량: {res['quantity']}주")
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# --- 3. 외화(달러) 내역 ---
-st.markdown("### 💵 외화 자산 (USD)")
-st.markdown('<div class="asset-card">', unsafe_allow_html=True)
-col1, col2 = st.columns(2)
-with col1:
-    st.metric("보유 달러", f"${usd_balance:,.2f}")
-with col2:
-    st.metric("원화 환산액", f"₩{usd_krw_value:,.0f}", f"환율 {current_usd_krw:,.2f}원")
-st.markdown('</div>', unsafe_allow_html=True)
+    st.divider()
+    
+    # 3. 총 자산 요약
+    st.header("💰 총 자산 요약")
+    grand_total = krw_balance + (usd_balance * curr_usd) + total_stock_value
+    total_profit = total_stock_value - total_invested
+    total_return_rate = (total_profit / total_invested) * 100 if total_invested > 0 else 0
+    
+    col_t1, col_t2 = st.columns(2)
+    col_t1.metric("총 자산 평가액 (원화+달러+주식)", f"₩{grand_total:,.0f}")
+    col_t2.metric("주식 총 평가손익", f"₩{total_profit:,.0f}", f"주식 총 수익률: {total_return_rate:,.2f}%")
+    
+    # 4. 자산 추이 그래프 (최근 3개월)
+    st.divider()
+    st.header("📈 최근 3개월 총 자산 변동 추이")
+    
+    # 날짜별 달러 환산액 + 날짜별 주식 평가액 계산
+    daily_usd_val = usd_balance * history_df['USDKRW']
+    daily_stock_val = sum(history_df[item['ticker']] * item['quantity'] for item in portfolio)
+    
+    # DataFrame에 총 자산 컬럼 추가
+    history_df['총 자산(KRW)'] = krw_balance + daily_usd_val + daily_stock_val
+    
+    # 그래프 출력
+    st.line_chart(history_df['총 자산(KRW)'])
+    
+else:
+    st.error("데이터를 불러오지 못했습니다. 야후 파이낸스 서버 상태를 확인해 주세요.")
