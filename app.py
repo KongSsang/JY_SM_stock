@@ -126,7 +126,7 @@ if not df_cash.empty:
     for _, row in usd_df.iterrows():
         usd_purchases.append({"amount": float(row['Amount']), "buy_rate": float(row['Rate'])})
 
-tab1, tab2, tab3 = st.tabs(["📊 자산 대시보드", "📝 자산 변동 내역", "💕 데이트 비용"])
+tab1, tab2, tab3 = st.tabs(["📊 결혼자 대시보드", "📝 자산 변동 내역", "💕 데이트 비용"])
 
 with tab1:
     current_usd_krw, usd_krw_change = get_exchange_rate()
@@ -197,13 +197,13 @@ with tab1:
     st.write("")
     
     with st.container(border=True):
-        st.subheader("💰 오늘의 총 자산")
+        st.subheader("💰 오늘의 총 결혼 자금")
         grand_total = krw_balance + usd_current_krw + total_stock_value
         total_profit = total_stock_value - total_invested
         total_return_rate = (total_profit / total_invested) * 100 if total_invested > 0 else 0
 
         col_t1, col_t2 = st.columns(2)
-        col_t1.metric("총 자산 평가액 (현금 + 주식)", f"₩{grand_total:,.0f}")
+        col_t1.metric("총 결혼 자 평가액 (현금 + 주식)", f"₩{grand_total:,.0f}")
         col_t2.metric("주식 총 평가손익", f"₩{total_profit:,.0f}", f"주식 수익률: {total_return_rate:,.2f}%")
 
     kst = pytz.timezone('Asia/Seoul')
