@@ -68,13 +68,16 @@ try:
     sheet_history = client.open(config.SHEET_NAME).worksheet("History")
     sheet_log = client.open(config.SHEET_NAME).worksheet("Log")
     sheet_date_log = client.open(config.SHEET_NAME).worksheet("Date_Log")
+    sheet_portfolio = client.open(config.SHEET_NAME).worksheet("Portfolio") # 👈 포트폴리오 시트 연결
 except Exception as e:
     st.error(f"구글 스프레드시트 연결 오류: {e}")
     st.stop()
 
+# 포트폴리오 데이터 불러오기
+portfolio_records = sheet_portfolio.get_all_records()
 
 # ==========================================
-# 📑 탭(Tab) 생성 (3개)
+# 📑 탭(Tab) 생성
 # ==========================================
 tab1, tab2, tab3 = st.tabs(["📊 자산 대시보드", "📝 자산 변동 내역", "💕 데이트 비용"])
 
@@ -111,7 +114,8 @@ with tab1:
     total_invested = 0
     stock_render_data = []
 
-    for item in config.portfolio:
+    # 👈 config.py가 아닌 스프레드시트에서 가져온 포트폴리오 사용
+    for item in portfolio_records:
         current_price, price_change = get_market_data(item["ticker"])
         
         if current_price is not None:
@@ -153,7 +157,7 @@ with tab1:
 
     st.divider()
 
-    st.header("💰 오늘의 결혼 자금 합계")
+    st.header("💰 오늘의 총 자산")
     grand_total = config.krw_balance + usd_current_krw + total_stock_value
     total_profit = total_stock_value - total_invested
     total_return_rate = (total_profit / total_invested) * 100 if total_invested > 0 else 0
@@ -163,7 +167,7 @@ with tab1:
     col_t2.metric("주식 총 평가손익", f"₩{total_profit:,.0f}", f"주식 총 수익률: {total_return_rate:,.2f}%")
 
     st.divider()
-    st.header("📈 우리의 총 자산 변동 추이")
+    st.header("📈 나의 실제 총 자산 변동 추이")
 
     kst = pytz.timezone('Asia/Seoul')
     today_str = datetime.now(kst).strftime('%Y-%m-%d')
@@ -185,29 +189,87 @@ with tab1:
         df_history.set_index('Date', inplace=True)
         st.line_chart(df_history['Total_Asset'])
 
+
 # ------------------------------------------
-# 탭 2: 자산 변동 내역 
+# 탭 2: 자산 변동 내역 (주식 매수 기능 통합)
 # ------------------------------------------
 with tab2:
-    st.header("📝 우리의 자산 변동 내역")
-    st.markdown("저축, 주식 매수 등 자산이 변동된 내역을 직접 기록하고 함께 확인할 수 있는 공간입니다.")
+    st.header("📝 우리 자산 변동 내역")
     
-    with st.form("log_form", clear_on_submit=True):
-        st.subheader("새로운 자산 내역 추가하기")
-        
-        c1, c2 = st.columns(2)
-        log_date = c1.date_input("날짜", datetime.now(pytz.timezone('Asia/Seoul')), key="log_date")
-        log_category = c2.selectbox("분류", ["입금 (저축/월급)", "출금 (지출)", "주식 매수/매도", "달러 환전", "기타"], key="log_cat")
-        
-        c3, c4 = st.columns(2)
-        log_amount = c3.number_input("변동 금액 (원/달러 등)", step=10000, key="log_amt")
-        log_memo = c4.text_input("상세 내용", placeholder="예: 4월 월급 입금, ETF 추가 매수 등", key="log_memo")
-        
-        submitted = st.form_submit_button("자산 기록 추가하기")
-        if submitted:
-            sheet_log.append_row([str(log_date), log_category, log_amount, log_memo])
-            st.success("내역이 성공적으로 기록되었습니다!")
-            st.rerun()
+    # 입력 폼 종류 선택
+    form_type = st.radio("기록할 내역의 종류를 선택하세요:", ["💰 일반 자산 변동 (입출금/환전 등)", "📈 주식 매수"], horizontal=True)
+    st.write("")
+
+    if form_type == "💰 일반 자산 변동 (입출금/환전 등)":
+        with st.form("general_log_form", clear_on_submit=True):
+            st.subheader("새로운 자산 내역 추가하기")
+            
+            c1, c2 = st.columns(2)
+            log_date = c1.date_input("날짜", datetime.now(pytz.timezone('Asia/Seoul')), key="g_date")
+            log_category = c2.selectbox("분류", ["입금 (저축/월급)", "출금 (지출)", "주식 매도", "달러 환전", "기타"], key="g_cat")
+            
+            c3, c4 = st.columns(2)
+            log_amount = c3.number_input("변동 금액 (원/달러 등)", step=10000, key="g_amt")
+            log_memo = c4.text_input("상세 내용", placeholder="예: 4월 월급 입금", key="g_memo")
+            
+            submitted = st.form_submit_button("자산 기록 추가하기")
+            if submitted:
+                sheet_log.append_row([str(log_date), log_category, log_amount, log_memo])
+                st.success("내역이 성공적으로 기록되었습니다!")
+                st.rerun()
+
+    else: # 주식 매수 선택 시
+        with st.form("stock_buy_form", clear_on_submit=True):
+            st.subheader("새로운 주식 매수 기록하기")
+            st.markdown("💡 *이미 보유 중인 종목의 티커를 입력하면, 기존 수량과 합산되어 평단가가 자동으로 재계산됩니다.*")
+            
+            c1, c2 = st.columns(2)
+            buy_date = c1.date_input("매수 날짜", datetime.now(pytz.timezone('Asia/Seoul')), key="s_date")
+            buy_name = c2.text_input("종목명", placeholder="예: TIGER 200", key="s_name")
+            
+            c3, c4 = st.columns(2)
+            buy_ticker = c3.text_input("티커 (Yahoo Finance 기준)", placeholder="예: 102110.KS", key="s_ticker")
+            buy_qty = c4.number_input("매수 수량 (주)", min_value=1, step=1, key="s_qty")
+            
+            c5, c6 = st.columns(2)
+            buy_price = c5.number_input("매수 단가 (1주당 ₩)", min_value=0, step=100, key="s_price")
+            buy_memo = c6.text_input("상세 내용 (선택)", placeholder="예: 매달 적립식 매수", key="s_memo")
+            
+            submit_stock = st.form_submit_button("주식 매수 기록 반영하기")
+            
+            if submit_stock:
+                if not buy_name or not buy_ticker:
+                    st.error("종목명과 티커를 모두 입력해 주세요!")
+                else:
+                    df_port = pd.DataFrame(portfolio_records)
+                    
+                    # 1. 포트폴리오 시트 업데이트 로직
+                    if not df_port.empty and buy_ticker in df_port['ticker'].values:
+                        # 기존 보유 종목인 경우 -> 평단가, 수량 재계산 후 덮어쓰기
+                        idx = df_port.index[df_port['ticker'] == buy_ticker].tolist()[0]
+                        row_num = int(idx) + 2 # 0-index 기반 보정 및 헤더(1행) 포함
+                        
+                        old_qty = float(df_port.at[idx, 'quantity'])
+                        old_price = float(df_port.at[idx, 'buy_price'])
+                        
+                        new_qty = old_qty + buy_qty
+                        new_avg_price = ((old_qty * old_price) + (buy_qty * buy_price)) / new_qty
+                        
+                        sheet_portfolio.update_cell(row_num, 3, new_qty)
+                        sheet_portfolio.update_cell(row_num, 4, new_avg_price)
+                        action_msg = f"기존 {buy_name} 종목에 추가 매수되어 평단가가 업데이트되었습니다."
+                    else:
+                        # 신규 종목인 경우 -> 포트폴리오 맨 아래에 새 줄 추가
+                        sheet_portfolio.append_row([buy_name, buy_ticker, buy_qty, buy_price])
+                        action_msg = f"신규 종목 {buy_name}이(가) 포트폴리오에 추가되었습니다."
+                    
+                    # 2. 일반 Log 시트에도 매수 기록 남기기 (총 매수 금액)
+                    total_buy_amount = buy_qty * buy_price
+                    log_memo_text = f"[{buy_name}] {buy_qty}주 매수 (@{buy_price:,.0f}원) {buy_memo}"
+                    sheet_log.append_row([str(buy_date), "주식 매수", total_buy_amount, log_memo_text])
+                    
+                    st.success(f"성공! {action_msg}")
+                    st.rerun()
 
     st.divider()
     
@@ -218,7 +280,8 @@ with tab2:
         df_log = pd.DataFrame(log_records)
         st.dataframe(df_log, use_container_width=True, hide_index=True)
     else:
-        st.info("아직 기록된 내역이 없습니다. 위의 폼에서 첫 기록을 남겨보세요!")
+        st.info("아직 기록된 내역이 없습니다.")
+
 
 # ------------------------------------------
 # 탭 3: 데이트 비용 통계 및 기록
@@ -231,7 +294,6 @@ with tab3:
         
         c1, c2 = st.columns(2)
         date_log_date = c1.date_input("날짜", datetime.now(pytz.timezone('Asia/Seoul')), key="date_log_date")
-        # 👈 입금 카테고리 제거 완료
         date_category = c2.selectbox("분류", ["식비 (식당/카페)", "문화생활 (영화/전시)", "교통/숙박", "쇼핑/선물", "기타"], key="date_cat")
         
         c3, c4 = st.columns(2)
@@ -246,7 +308,6 @@ with tab3:
 
     st.divider()
     
-    # === 데이트 비용 통계 및 그래프 ===
     date_log_records = sheet_date_log.get_all_records()
     
     if date_log_records:
@@ -254,32 +315,26 @@ with tab3:
         df_date_log['날짜'] = pd.to_datetime(df_date_log['날짜'])
         df_date_log['금액'] = pd.to_numeric(df_date_log['금액'])
         
-        # 혹시 예전에 입력된 "데이트 통장 입금" 기록이 있다면 화면과 계산에서 무시
         df_date_log = df_date_log[df_date_log['분류'] != "데이트 통장 입금"]
         
         if not df_date_log.empty:
-            # 1. 월별 통계 분석을 위한 처리
             df_date_log['연월'] = df_date_log['날짜'].dt.strftime('%Y-%m') 
             
-            # 2. 월요일~일요일 주간 묶음 계산 (판다스 기능 활용)
             df_date_log['주_시작일'] = df_date_log['날짜'] - pd.to_timedelta(df_date_log['날짜'].dt.weekday, unit='D')
             df_date_log['주_종료일'] = df_date_log['주_시작일'] + pd.Timedelta(days=6)
             df_date_log['주간_표시'] = df_date_log['주_시작일'].dt.strftime('%m/%d') + " ~ " + df_date_log['주_종료일'].dt.strftime('%m/%d')
             
             st.subheader("📊 데이트 지출 통계")
             
-            # 월 선택 드롭다운
             month_list = sorted(df_date_log['연월'].unique(), reverse=True)
             selected_month = st.selectbox("조회할 월을 선택하세요", month_list)
             
-            # 선택한 월의 데이터 필터링
             monthly_df = df_date_log[df_date_log['연월'] == selected_month]
             total_expense = monthly_df['금액'].sum()
             
             st.metric(f"{selected_month} 총 지출액", f"₩{total_expense:,.0f}")
             
             if not monthly_df.empty:
-                # 도넛 차트
                 expense_summary = monthly_df.groupby('분류')['금액'].sum().reset_index()
                 fig = px.pie(
                     expense_summary, 
@@ -293,20 +348,16 @@ with tab3:
                 
             st.divider()
             
-            # 3. 주차별 리스트 출력 (월화수목금토일 묶음)
             st.subheader(f"🗓️ {selected_month} 주차별 상세 내역")
             
-            # 해당 월의 데이터를 '주_시작일' 기준으로 묶어서 합계 계산 후 내림차순 정렬
             weekly_summary = monthly_df.groupby(['주_시작일', '주간_표시'])['금액'].sum().reset_index()
             weekly_summary = weekly_summary.sort_values(by='주_시작일', ascending=False)
             
-            # 각 주차별로 아코디언(expander) 생성
             for _, row in weekly_summary.iterrows():
                 week_label = row['주간_표시']
                 week_total = row['금액']
                 
                 with st.expander(f"📅 {week_label} 지출 합계: ₩{week_total:,.0f}", expanded=True):
-                    # 해당 주간의 내역만 뽑아와서 출력
                     week_data = monthly_df[monthly_df['주간_표시'] == week_label].sort_values(by='날짜', ascending=False)
                     display_week_df = week_data[['날짜', '분류', '금액', '내용']].copy()
                     display_week_df['날짜'] = display_week_df['날짜'].dt.strftime('%Y-%m-%d')
