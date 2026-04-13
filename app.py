@@ -126,7 +126,7 @@ if not df_cash.empty:
     for _, row in usd_df.iterrows():
         usd_purchases.append({"amount": float(row['Amount']), "buy_rate": float(row['Rate'])})
 
-tab1, tab2, tab3 = st.tabs(["📊 결혼자 대시보드", "📝 자산 변동 내역", "💕 데이트 비용"])
+tab1, tab2, tab3 = st.tabs(["📊 자산 대시보드", "📝 자산 변동 내역", "💕 데이트 비용"])
 
 with tab1:
     current_usd_krw, usd_krw_change = get_exchange_rate()
@@ -146,8 +146,10 @@ with tab1:
         col3.metric("달러 원화 환산액", f"₩{usd_current_krw:,.0f}", f"현재 환율: ₩{current_usd_krw:,.2f}")
         col4.metric("달러 환차익 수익률", f"{usd_return_rate:,.2f}%", f"₩{usd_profit:,.0f}")
 
+    # 🌟 계산을 위해 당일 변동액 변수를 추가했습니다.
     total_stock_value = 0
     total_invested = 0
+    total_daily_profit = 0  # 👈 당일 전체 손익
     stock_render_data = []
 
     for item in portfolio_records:
@@ -158,8 +160,11 @@ with tab1:
             profit = current_value - invested
             return_rate = (profit / invested) * 100 if invested > 0 else 0
             
+            daily_profit = price_change * item["quantity"] # 개별 주식 당일 손익
+            
             total_stock_value += current_value
             total_invested += invested
+            total_daily_profit += daily_profit # 총 당일 손익 합산
             
             stock_render_data.append({
                 "item": item, "current_price": current_price, "price_change": price_change,
@@ -168,7 +173,6 @@ with tab1:
         else:
             stock_render_data.append({"item": item, "error": True})
 
-    # === 👇 이번에 새로 추가된 '주식 자산 요약' 영역 ===
     with st.container(border=True):
         st.subheader("📈 주식 자산")
         total_stock_profit = total_stock_value - total_invested
@@ -177,9 +181,8 @@ with tab1:
         c1, c2, c3 = st.columns(3)
         c1.metric("총 투자 원금", f"₩{total_invested:,.0f}")
         c2.metric("총 평가액", f"₩{total_stock_value:,.0f}")
-        c3.metric("총 평가손익", f"₩{total_stock_profit:,.0f}", f"수익률: {total_stock_return_rate:,.2f}%")
+        c3.metric("누적 평가손익", f"₩{total_stock_profit:,.0f}", f"누적 수익률: {total_stock_return_rate:,.2f}%")
         
-        # 개별 주식 내역은 아래로 깔끔하게 정리
         with st.expander("👉 보유 종목 상세 보기", expanded=False):
             for data in stock_render_data:
                 if data["error"]:
@@ -190,21 +193,25 @@ with tab1:
                     sc1, sc2, sc3, sc4 = st.columns(4)
                     sc1.metric("현재가(네이버)", f"₩{data['current_price']:,.0f}", f"{data['price_change']:,.0f}원") 
                     sc2.metric("평단가 / 수량", f"₩{item['buy_price']:,.0f} / {item['quantity']}주")
-                    sc3.metric("수익률", f"{data['return_rate']:,.2f}%", f"₩{data['profit']:,.0f}")
+                    sc3.metric("누적 수익률", f"{data['return_rate']:,.2f}%", f"₩{data['profit']:,.0f}")
                     sc4.metric("현재 평가액", f"₩{data['current_value']:,.0f}")
                     st.write("") 
 
     st.write("")
     
     with st.container(border=True):
-        st.subheader("💰 오늘의 총 결혼 자금")
+        st.subheader("💰 오늘의 총 자산")
         grand_total = krw_balance + usd_current_krw + total_stock_value
-        total_profit = total_stock_value - total_invested
-        total_return_rate = (total_profit / total_invested) * 100 if total_invested > 0 else 0
-
+        
         col_t1, col_t2 = st.columns(2)
-        col_t1.metric("총 결혼 자 평가액 (현금 + 주식)", f"₩{grand_total:,.0f}")
-        col_t2.metric("주식 총 평가손익", f"₩{total_profit:,.0f}", f"주식 수익률: {total_return_rate:,.2f}%")
+        col_t1.metric("총 자산 평가액 (현금 + 주식)", f"₩{grand_total:,.0f}")
+        
+        # 🌟 수정한 부분: "오늘 하루 동안의 주식 변동"
+        yesterday_stock_value = total_stock_value - total_daily_profit
+        daily_stock_return_rate = (total_daily_profit / yesterday_stock_value) * 100 if yesterday_stock_value > 0 else 0
+        
+        # 델타(세 번째 값)에 숫자를 주면 알아서 위/아래 화살표를 예쁘게 렌더링해줍니다.
+        col_t2.metric("오늘의 주식 손익 (전일대비)", f"₩{total_daily_profit:,.0f}", f"{daily_stock_return_rate:,.2f}%")
 
     kst = pytz.timezone('Asia/Seoul')
     today_str = datetime.now(kst).strftime('%Y-%m-%d')
