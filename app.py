@@ -10,7 +10,7 @@ import requests
 import plotly.express as px
 from streamlit_lottie import st_lottie  
 from bs4 import BeautifulSoup 
-import calendar # 👈 달력(적금 납입일) 계산용 추가
+import calendar 
 
 st.set_page_config(page_title="결혼 자금 포트폴리오", page_icon="💍", layout="wide", initial_sidebar_state="collapsed")
 st.markdown("""
@@ -30,7 +30,6 @@ st.markdown("""
         font-size: 1.8rem !important;
         font-weight: 700 !important;
     }
-    /* 취소선 스타일 */
     del {
         color: #999;
     }
@@ -109,7 +108,7 @@ try:
     sheet_date_log = client.open(SHEET_NAME).worksheet("Date_Log")
     sheet_portfolio = client.open(SHEET_NAME).worksheet("Portfolio")
     sheet_cash = client.open(SHEET_NAME).worksheet("Cash") 
-    sheet_savings = client.open(SHEET_NAME).worksheet("Savings") # 👈 적금 시트 연결
+    sheet_savings = client.open(SHEET_NAME).worksheet("Savings") 
 except Exception as e:
     st.error(f"구글 스프레드시트 연결 오류: {e}")
     st.stop()
@@ -139,15 +138,14 @@ total_active_savings = 0
 savings_render_data = []
 
 def count_deposits(start_dt, target_dt, end_dt, day):
-    """시작일부터 목표일까지 지정된 이체일이 몇 번 지났는지 계산 (만기일 당일 및 이후는 제외)"""
     c_year, c_month = start_dt.year, start_dt.month
     cnt = 0
     while True:
         last_day = calendar.monthrange(c_year, c_month)[1]
-        d_day = min(day, last_day) # 31일이 없는 달 보정 (예: 2월)
+        d_day = min(day, last_day) 
         d_date = pd.Timestamp(year=c_year, month=c_month, day=d_day)
         
-        if d_date >= end_dt: break # 만기일 당일에는 납입하지 않음
+        if d_date >= end_dt: break 
         if d_date > target_dt: break
         if d_date >= start_dt: cnt += 1
             
@@ -179,8 +177,8 @@ for idx, row in enumerate(savings_records):
             "row_idx": idx + 2, "item": row, "accumulated": 0, "is_matured": True
         })
 
-# 실제 사용 가능한 현금 (DB의 총 현금 - 진행 중인 적금 누적액)
-actual_krw_balance = krw_balance - total_active_savings
+# 🌟 수정 포인트: 현금은 현금대로 놔두고, 적금은 외부에서 들어오는 것으로 처리
+actual_krw_balance = krw_balance
 
 # ==========================================
 # 📑 탭(Tab) 생성
@@ -203,8 +201,8 @@ with tab1:
         usd_return_rate = (usd_profit / total_krw_invested_for_usd) * 100 if total_krw_invested_for_usd > 0 else 0
 
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("사용 가능 현금", f"₩{actual_krw_balance:,.0f}")
-        c2.metric("적금 누적액", f"₩{total_active_savings:,.0f}", "자동 이체 반영됨")
+        c1.metric("보유 현금", f"₩{actual_krw_balance:,.0f}")
+        c2.metric("적금 누적액", f"₩{total_active_savings:,.0f}", "외부에서 매월 자동 추가됨")
         c3.metric("보유 달러 (USD)", f"${total_usd_amount:,.2f}", f"평균: ₩{avg_usd_buy_rate:,.0f}")
         c4.metric("달러 수익률", f"{usd_return_rate:,.2f}%", f"₩{usd_profit:,.0f}")
 
@@ -261,7 +259,7 @@ with tab1:
     
     with st.container(border=True):
         st.subheader("💰 오늘의 총 자산")
-        # 총 자산 = 순수 현금 + 적금 원금 + 달러 가치 + 주식 가치
+        # 🌟 현금을 깎지 않고 외부에서 들어온 적금을 온전히 더해줍니다.
         grand_total = actual_krw_balance + total_active_savings + usd_current_krw + total_stock_value
         
         col_t1, col_t2 = st.columns(2)
@@ -296,7 +294,7 @@ with tab1:
 # ------------------------------------------
 with tab2:
     st.subheader("📝 우리의 자산 변동 기록장")
-    st.caption("💡 적금 이체는 매월 지정일에 현금 잔고에서 알아서 빠져나가니 여기에 따로 기록하지 않으셔도 됩니다!")
+    st.caption("💡 적금은 외부 자금에서 매월 지정일에 자동으로 누적되니 이곳에 기록하지 않으셔도 됩니다!")
     form_type = st.radio("어떤 내역을 기록할까요?", ["💰 원화 입출금", "💵 달러 환전", "📈 주식 매수"], horizontal=True)
     st.write("")
 
@@ -308,7 +306,7 @@ with tab2:
                 inout_type = c2.selectbox("분류", ["입금 (저축/월급 등)", "출금 (지출)"], key="k_cat")
                 c3, c4 = st.columns(2)
                 log_amount = c3.number_input("금액 (원)", step=10000, key="k_amt")
-                log_memo = c4.text_input("메모", placeholder="예: 4월 월급", key="k_memo")
+                log_memo = c4.text_input("메모", placeholder="예: 이번 달 결혼 자금 저축", key="k_memo")
                 
                 if st.form_submit_button("기록 저장하기", use_container_width=True):
                     new_krw = krw_balance + log_amount if "입금" in inout_type else krw_balance - log_amount
@@ -319,6 +317,7 @@ with tab2:
 
         elif form_type == "💵 달러 환전":
             with st.form("usd_log_form", clear_on_submit=True, border=False):
+                st.caption("💡 원화 잔고에서 자동으로 차감됩니다.")
                 c1, c2 = st.columns(2)
                 usd_date = c1.date_input("날짜", datetime.now(pytz.timezone('Asia/Seoul')), key="u_date")
                 usd_amount = c2.number_input("환전 달러 (USD)", step=100.0, format="%.2f", key="u_amt")
@@ -336,6 +335,7 @@ with tab2:
 
         else: 
             with st.form("stock_buy_form", clear_on_submit=True, border=False):
+                st.caption("💡 원화 잔고에서 매수 금액이 자동으로 차감됩니다.")
                 c1, c2 = st.columns(2)
                 buy_date = c1.date_input("날짜", datetime.now(pytz.timezone('Asia/Seoul')), key="s_date")
                 buy_name = c2.text_input("종목명", placeholder="예: TIGER 미국S&P500", key="s_name")
@@ -417,11 +417,9 @@ with tab4:
                             rec_amt = st.number_input("만기 수령액 입력 (원금 + 이자 모두 포함)", value=data['accumulated'], step=10000)
                             if st.form_submit_button("💰 수령하여 현금에 합산하기"):
                                 interest = rec_amt - data['accumulated']
-                                # 1. 현금 시트에 '수령액(원금+이자)'을 더해줍니다 (DB의 총 현금을 늘림)
+                                # 🌟 만기 시에는 적금 수령액이 '보유 현금'으로 쏙 들어갑니다!
                                 sheet_cash.update_cell(krw_row_idx, 2, krw_balance + rec_amt)
-                                # 2. 적금 상태 변경
                                 sheet_savings.update_cell(data['row_idx'], 6, '만기완료')
-                                # 3. 로그 남기기
                                 sheet_log.append_row([str(today_dt.date()), "적금 만기", rec_amt, f"[{item['name']}] 만기 수령 (이자 수익: {interest:,.0f}원)"])
                                 st.toast("축하합니다! 만기액이 현금 자산에 합산되었습니다.", icon='🎉')
                                 st.rerun()
@@ -431,11 +429,11 @@ with tab4:
                         st.markdown(f"### ⏳ {item['name']}")
                         c1, c2, c3 = st.columns(3)
                         c1.metric("납입 횟수", f"{data['passed_deposits']} / {data['total_expected']} 회")
-                        c2.metric("현재 납입 원금", f"₩{data['accumulated']:,.0f}")
-                        c3.metric("매월 납입액", f"₩{item['monthly_amount']:,.0f}", f"매월 {item['deposit_day']}일 이체")
+                        c2.metric("현재 누적액", f"₩{data['accumulated']:,.0f}")
+                        c3.metric("매월 납입액", f"₩{item['monthly_amount']:,.0f}", f"매월 {item['deposit_day']}일 외부에서 이체됨")
                         st.caption(f"📅 만기일: {item['end_date']}")
             else:
-                # 만기 완료된 적금 (취소선)
+                # 만기 완료된 적금
                 st.markdown(f"#### <del>{item['name']} (만기 완료)</del>", unsafe_allow_html=True)
 
 # ------------------------------------------
