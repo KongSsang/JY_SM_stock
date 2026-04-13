@@ -8,7 +8,8 @@ from datetime import datetime
 import pytz
 import requests
 import plotly.express as px
-from streamlit_lottie import st_lottie  # 👈 애니메이션용 라이브러리 추가
+from streamlit_lottie import st_lottie
+from bs4 import BeautifulSoup  # 👈 네이버 크롤링용 라이브러리 추가
 
 # 페이지 여백을 줄이고 더 넓게 쓰기 위한 설정 추가
 st.set_page_config(page_title="결혼 자금 포트폴리오", page_icon="💍", layout="wide", initial_sidebar_state="collapsed")
@@ -46,7 +47,7 @@ def load_lottieurl(url: str):
         return None
     return r.json()
 
-# 귀여운 하트 애니메이션 (URL은 언제든 다른 Lottie 이미지 주소로 바꿀 수 있습니다)
+# 귀여운 하트 애니메이션
 lottie_heart = load_lottieurl("https://lottie.host/0a300676-9ceb-4f2f-87a1-4321fb9669ce/IkBGyzReWa.json")
 
 # 제목과 애니메이션을 나란히 배치하기
@@ -57,27 +58,44 @@ with col1:
 with col2:
     st.write("") # 위치를 살짝 내리기 위한 빈 줄
     st.title("💍 우리의 결혼 자금 & 데이트 관리")
+
 # ==========================================
 # ⚙️ 설정 영역
 # ==========================================
 SHEET_NAME = "Asset_history" 
 
 # ==========================================
-# 📡 데이터 수집
+# 📡 데이터 수집 (네이버 증권 크롤러 적용)
 # ==========================================
 @st.cache_data(ttl=60)
 def get_market_data(ticker_symbol):
+    """네이버 증권에서 실시간 주가와 전일대비 변동폭을 크롤링합니다."""
     try:
-        ticker = yf.Ticker(ticker_symbol)
-        hist = ticker.history(period='5d') 
-        if len(hist) >= 2:
-            current_price = float(hist['Close'].iloc[-1])
-            prev_price = float(hist['Close'].iloc[-2])
-            return current_price, current_price - prev_price
-        elif len(hist) == 1:
-            return float(hist['Close'].iloc[0]), 0.0
-        return None, None
-    except:
+        # 야후 티커(예: 102110.KS)에서 숫자(종목코드)만 추출
+        code = str(ticker_symbol).split('.')[0]
+        url = f"https://finance.naver.com/item/main.naver?code={code}"
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
+        
+        response = requests.get(url, headers=headers)
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # 현재가 추출
+        price_tag = soup.select_one(".no_today .blind")
+        if not price_tag:
+            return None, None
+        current_price = int(price_tag.text.replace(',', ''))
+        
+        # 전일대비 변동폭 추출
+        diff_tag = soup.select_one(".no_exday .blind")
+        diff_amount = int(diff_tag.text.replace(',', ''))
+        
+        # 상승/하락 여부 확인 (클래스명으로 판별)
+        exday_em = soup.select_one(".no_exday em")
+        if exday_em and 'no_down' in exday_em.get('class', []):
+            diff_amount = -diff_amount
+            
+        return current_price, float(diff_amount)
+    except Exception as e:
         return None, None
 
 @st.cache_data(ttl=60)
@@ -259,7 +277,6 @@ with tab2:
                     new_krw = krw_balance + log_amount if "입금" in inout_type else krw_balance - log_amount
                     sheet_cash.update_cell(krw_row_idx, 2, new_krw)
                     sheet_log.append_row([str(log_date), inout_type, log_amount, log_memo])
-                    # UI 최적화: 트렌디한 토스트 알림
                     st.toast('내역이 성공적으로 저장되었습니다! 💾', icon='✅')
                     st.rerun()
 
@@ -321,7 +338,6 @@ with tab2:
     
     if log_records:
         df_log = pd.DataFrame(log_records).sort_values(by='날짜', ascending=False)
-        # UI 최적화: 데이터프레임 컬럼 서식 지정 (금액에 ₩ 표시)
         st.dataframe(
             df_log, 
             use_container_width=True, 
@@ -332,7 +348,6 @@ with tab2:
         )
     else:
         st.info("아직 기록된 내역이 없습니다.")
-
 
 # ------------------------------------------
 # 탭 3: 데이트 비용 통계 및 기록
@@ -381,7 +396,7 @@ with tab3:
                 expense_summary = monthly_df.groupby('분류')['금액'].sum().reset_index()
                 fig = px.pie(
                     expense_summary, values='금액', names='분류', hole=0.4, 
-                    color_discrete_sequence=px.colors.qualitative.Pastel # 차트 색상을 부드러운 파스텔톤으로 변경
+                    color_discrete_sequence=px.colors.qualitative.Pastel 
                 )
                 fig.update_traces(textposition='inside', textinfo='percent+label', marker=dict(line=dict(color='#ffffff', width=2)))
                 fig.update_layout(showlegend=False, margin=dict(t=0, b=0, l=0, r=0))
