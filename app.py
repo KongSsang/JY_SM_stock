@@ -8,31 +8,23 @@ from datetime import datetime
 import pytz
 import requests
 import plotly.express as px
-from streamlit_lottie import st_lottie
-from bs4 import BeautifulSoup  # 👈 네이버 크롤링용 라이브러리 추가
+from streamlit_lottie import st_lottie  
+from bs4 import BeautifulSoup 
 
-# 페이지 여백을 줄이고 더 넓게 쓰기 위한 설정 추가
 st.set_page_config(page_title="결혼 자금 포트폴리오", page_icon="💍", layout="wide", initial_sidebar_state="collapsed")
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Gowun+Dodum&display=swap');
     
-    /* 1. 실제 텍스트 요소에만 폰트 적용 (아이콘 제외) */
     .stApp, .stMarkdown, p, h1, h2, h3, h4, h5, h6, label, .stMetric, button {
         font-family: 'Gowun Dodum', sans-serif !important;
     }
-
-    /* 2. 스트림릿 고유 아이콘 폰트 복구 (화살표 깨짐 방지) */
     [data-testid="stExpanderIcon"], .st-emotion-cache-1p3m0jg, i {
         font-family: "Source Sans Pro", sans-serif !important;
     }
-
-    /* 3. 배경색 및 카드 디자인 */
     .stApp {
         background-color: #FAFAFA !important;
     }
-    
-    /* 4. 메트릭(숫자) 강조 및 가독성 */
     [data-testid="stMetricValue"] {
         font-size: 1.8rem !important;
         font-weight: 700 !important;
@@ -40,62 +32,48 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# === 애니메이션 불러오기 및 출력 ===
 def load_lottieurl(url: str):
-    r = requests.get(url)
-    if r.status_code != 200:
-        return None
-    return r.json()
+    try:
+        r = requests.get(url, timeout=5)
+        if r.status_code != 200: return None
+        return r.json()
+    except: return None
 
-# 귀여운 하트 애니메이션
 lottie_heart = load_lottieurl("https://lottie.host/0a300676-9ceb-4f2f-87a1-4321fb9669ce/IkBGyzReWa.json")
 
-# 제목과 애니메이션을 나란히 배치하기
 col1, col2 = st.columns([1, 4])
 with col1:
     if lottie_heart:
         st_lottie(lottie_heart, height=100, key="heart")
 with col2:
-    st.write("") # 위치를 살짝 내리기 위한 빈 줄
+    st.write("") 
     st.title("💍 우리의 결혼 자금 & 데이트 관리")
 
-# ==========================================
-# ⚙️ 설정 영역
-# ==========================================
 SHEET_NAME = "Asset_history" 
 
-# ==========================================
-# 📡 데이터 수집 (네이버 증권 크롤러 적용)
-# ==========================================
-@st.cache_data(ttl=60)
-def get_market_data(ticker_symbol):
-    """네이버 증권에서 실시간 주가와 전일대비 변동폭을 크롤링합니다."""
+# === 🌟 함수 이름을 바꿔서 기존 캐시를 강제로 파괴합니다! ===
+@st.cache_data(ttl=30) 
+def fetch_realtime_price(ticker_symbol):
     try:
-        # 야후 티커(예: 102110.KS)에서 숫자(종목코드)만 추출
         code = str(ticker_symbol).split('.')[0]
         url = f"https://finance.naver.com/item/main.naver?code={code}"
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        res = requests.get(url, headers=headers, timeout=5)
+        soup = BeautifulSoup(res.text, 'html.parser')
         
-        response = requests.get(url, headers=headers)
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        # 현재가 추출
         price_tag = soup.select_one(".no_today .blind")
-        if not price_tag:
-            return None, None
-        current_price = int(price_tag.text.replace(',', ''))
+        if not price_tag: return None, None
+        curr_price = int(price_tag.text.replace(',', ''))
         
-        # 전일대비 변동폭 추출
         diff_tag = soup.select_one(".no_exday .blind")
-        diff_amount = int(diff_tag.text.replace(',', ''))
+        diff_val = int(diff_tag.text.replace(',', ''))
         
-        # 상승/하락 여부 확인 (클래스명으로 판별)
-        exday_em = soup.select_one(".no_exday em")
-        if exday_em and 'no_down' in exday_em.get('class', []):
-            diff_amount = -diff_amount
+        em_class = soup.select_one(".no_exday em")
+        if em_class and 'no_down' in em_class.get('class', []):
+            diff_val = -diff_val
             
-        return current_price, float(diff_amount)
-    except Exception as e:
+        return curr_price, float(diff_val)
+    except:
         return None, None
 
 @st.cache_data(ttl=60)
@@ -106,25 +84,17 @@ def get_exchange_rate():
             curr = float(hist['Close'].iloc[-1])
             prev = float(hist['Close'].iloc[-2])
             return curr, curr - prev
-    except:
-        pass
+    except: pass
     try:
         url = "https://open.er-api.com/v6/latest/USD"
         data = requests.get(url).json()
         return float(data['rates']['KRW']), 0.0
-    except:
-        return 1350.0, 0.0 
+    except: return 1350.0, 0.0 
 
-# ==========================================
-# 🔑 구글 시트 연결
-# ==========================================
 @st.cache_resource
 def init_connection():
     creds_dict = json.loads(st.secrets["google_key"])
-    scopes = [
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive"
-    ]
+    scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
     return gspread.authorize(creds)
 
@@ -157,21 +127,14 @@ if not df_cash.empty:
     for _, row in usd_df.iterrows():
         usd_purchases.append({"amount": float(row['Amount']), "buy_rate": float(row['Rate'])})
 
-# ==========================================
-# 📑 탭(Tab) 생성
-# ==========================================
 tab1, tab2, tab3 = st.tabs(["📊 자산 대시보드", "📝 자산 변동 내역", "💕 데이트 비용"])
 
-# ------------------------------------------
-# 탭 1: 자산 대시보드
-# ------------------------------------------
 with tab1:
     current_usd_krw, usd_krw_change = get_exchange_rate()
     total_usd_amount = sum(p["amount"] for p in usd_purchases)
     total_krw_invested_for_usd = sum(p["buy_rate"] * p["amount"] for p in usd_purchases)
     avg_usd_buy_rate = total_krw_invested_for_usd / total_usd_amount if total_usd_amount > 0 else 0
 
-    # UI 최적화: 카드형 컨테이너 적용
     with st.container(border=True):
         st.subheader("💵 현금 자산 (USD & KRW)")
         usd_current_krw = total_usd_amount * current_usd_krw
@@ -189,7 +152,7 @@ with tab1:
     stock_render_data = []
 
     for item in portfolio_records:
-        current_price, price_change = get_market_data(item["ticker"])
+        current_price, price_change = fetch_realtime_price(item["ticker"]) # 👈 바뀐 함수 사용
         if current_price is not None:
             invested = item["buy_price"] * item["quantity"]
             current_value = current_price * item["quantity"]
@@ -206,7 +169,6 @@ with tab1:
         else:
             stock_render_data.append({"item": item, "error": True})
 
-    # UI 최적화: 아코디언 메뉴 깔끔하게 다듬기
     expander_title = f"📈 주식 자산 (총 평가액: ₩{total_stock_value:,.0f})"
     with st.expander(expander_title, expanded=False):
         for data in stock_render_data:
@@ -216,13 +178,14 @@ with tab1:
                 item = data["item"]
                 st.markdown(f"**🔹 {item['name']}**")
                 c1, c2, c3, c4 = st.columns(4)
-                c1.metric("현재가", f"₩{data['current_price']:,.0f}", f"{data['price_change']:,.0f}원")
+                # 👇 정상적으로 네이버 코드가 돌고 있는지 눈으로 확인하기 위한 표식
+                c1.metric("현재가(네이버)", f"₩{data['current_price']:,.0f}", f"{data['price_change']:,.0f}원") 
                 c2.metric("평단가 / 수량", f"₩{item['buy_price']:,.0f} / {item['quantity']}주")
                 c3.metric("수익률", f"{data['return_rate']:,.2f}%", f"₩{data['profit']:,.0f}")
                 c4.metric("현재 평가액", f"₩{data['current_value']:,.0f}")
                 st.write("") 
 
-    st.write("") # 간격 띄우기
+    st.write("")
     
     with st.container(border=True):
         st.subheader("💰 오늘의 총 자산")
@@ -234,7 +197,6 @@ with tab1:
         col_t1.metric("총 자산 평가액 (현금 + 주식)", f"₩{grand_total:,.0f}")
         col_t2.metric("주식 총 평가손익", f"₩{total_profit:,.0f}", f"주식 수익률: {total_return_rate:,.2f}%")
 
-    # 자산 추이 기록 및 차트
     kst = pytz.timezone('Asia/Seoul')
     today_str = datetime.now(kst).strftime('%Y-%m-%d')
     records = sheet_history.get_all_records()
@@ -255,9 +217,6 @@ with tab1:
         df_history.set_index('Date', inplace=True)
         st.line_chart(df_history['Total_Asset'], use_container_width=True)
 
-# ------------------------------------------
-# 탭 2: 자산 변동 내역
-# ------------------------------------------
 with tab2:
     st.subheader("📝 우리의 자산 변동 기록장")
     form_type = st.radio("어떤 내역을 기록할까요?", ["💰 원화 입출금", "💵 달러 환전", "📈 주식 매수"], horizontal=True)
@@ -349,9 +308,6 @@ with tab2:
     else:
         st.info("아직 기록된 내역이 없습니다.")
 
-# ------------------------------------------
-# 탭 3: 데이트 비용 통계 및 기록
-# ------------------------------------------
 with tab3:
     st.subheader("💕 우리의 데이트 비용")
     
