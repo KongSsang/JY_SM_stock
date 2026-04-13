@@ -121,13 +121,12 @@ def get_exchange_rate():
 # ==========================================
 # 🔑 구글 시트 연결
 # ==========================================
+SHEET_NAME = "Asset_history"
+
 @st.cache_resource
 def init_connection():
     creds_dict = json.loads(st.secrets["google_key"])
-    scopes = [
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive"
-    ]
+    scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
     return gspread.authorize(creds)
 
@@ -139,7 +138,7 @@ try:
     sheet_portfolio = client.open(SHEET_NAME).worksheet("Portfolio")
     sheet_cash = client.open(SHEET_NAME).worksheet("Cash") 
 except Exception as e:
-    st.error(f"구글 스프레드시트 연결 오류: {e}")
+    st.error(f"시트 연결 오류: {e}")
     st.stop()
 
 portfolio_records = sheet_portfolio.get_all_records()
@@ -149,13 +148,11 @@ df_cash = pd.DataFrame(cash_records)
 krw_balance = 0
 usd_purchases = []
 krw_row_idx = 2 
-
 if not df_cash.empty:
     krw_df = df_cash[df_cash['Type'] == 'KRW']
     if not krw_df.empty:
         krw_balance = float(krw_df['Amount'].iloc[0])
         krw_row_idx = int(krw_df.index[0]) + 2
-        
     usd_df = df_cash[df_cash['Type'] == 'USD']
     for _, row in usd_df.iterrows():
         usd_purchases.append({"amount": float(row['Amount']), "buy_rate": float(row['Rate'])})
