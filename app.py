@@ -153,7 +153,7 @@ with tab1:
 
     st.divider()
 
-    st.header("💰 오늘의 결혼 자금 합")
+    st.header("💰 오늘의 결혼 자금 합계")
     grand_total = config.krw_balance + usd_current_krw + total_stock_value
     total_profit = total_stock_value - total_invested
     total_return_rate = (total_profit / total_invested) * 100 if total_invested > 0 else 0
