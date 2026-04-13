@@ -65,22 +65,22 @@ def init_connection():
 try:
     client = init_connection()
     sheet_history = client.open(config.SHEET_NAME).worksheet("History")
-    sheet_log = client.open(config.SHEET_NAME).worksheet("Log")  # 새로 추가한 기록용 시트 연결
+    sheet_log = client.open(config.SHEET_NAME).worksheet("Log")
+    sheet_date_log = client.open(config.SHEET_NAME).worksheet("Date_Log") # 👈 새로 추가한 데이트 기록용 시트
 except Exception as e:
     st.error(f"구글 스프레드시트 연결 오류: {e}")
     st.stop()
 
 
 # ==========================================
-# 📑 탭(Tab) 생성
+# 📑 탭(Tab) 생성 (3개로 확장)
 # ==========================================
-tab1, tab2 = st.tabs(["📊 자산 대시보드", "📝 자산 변동 내역"])
+tab1, tab2, tab3 = st.tabs(["📊 자산 대시보드", "📝 자산 변동 내역", "💕 데이트 비용"])
 
 # ------------------------------------------
-# 탭 1: 기존 자산 대시보드
+# 탭 1: 자산 대시보드
 # ------------------------------------------
 with tab1:
-    # 1. 현금 자산
     current_usd_krw, usd_krw_change = get_exchange_rate()
 
     total_usd_amount = 0
@@ -106,7 +106,6 @@ with tab1:
 
     st.divider()
 
-    # 2. 주식 자산 
     total_stock_value = 0
     total_invested = 0
     stock_render_data = []
@@ -153,7 +152,6 @@ with tab1:
 
     st.divider()
 
-    # 3. 총 자산 요약
     st.header("💰 오늘의 총 자산")
     grand_total = config.krw_balance + usd_current_krw + total_stock_value
     total_profit = total_stock_value - total_invested
@@ -187,40 +185,54 @@ with tab1:
         st.line_chart(df_history['Total_Asset'])
 
 # ------------------------------------------
-# 탭 2: 자산 변동 내역 기록장 (여자친구와 공유)
+# 탭 2: 자산 변동 내역 
 # ------------------------------------------
 with tab2:
     st.header("📝 우리 자산 변동 내역")
     st.markdown("월급, 저축, 지출 등 자산이 변동된 내역을 직접 기록하고 함께 확인할 수 있는 공간입니다.")
     
-    # 기록 입력 폼 (Form)
     with st.form("log_form", clear_on_submit=True):
-        st.subheader("새로운 내역 추가하기")
+        st.subheader("새로운 자산 내역 추가하기")
         
         c1, c2 = st.columns(2)
-        log_date = c1.date_input("날짜", datetime.now(pytz.timezone('Asia/Seoul')))
-        log_category = c2.selectbox("분류", ["입금 (저축/월급)", "출금 (데이트/장보기)", "주식 매수", "달러 환전", "기타"])
+        log_date = c1.date_input("날짜", datetime.now(pytz.timezone('Asia/Seoul')), key="log_date")
+        log_category = c2.selectbox("분류", ["입금 (저축/월급)", "출금 (지출)", "주식 매수/매도", "달러 환전", "기타"], key="log_cat")
         
         c3, c4 = st.columns(2)
-        log_amount = c3.number_input("변동 금액 (원/달러 등)", step=10000)
-        log_memo = c4.text_input("상세 내용", placeholder="예: 4월 적금, 발리 여행 비행기표, 샤브샤브 장보기 등")
+        log_amount = c3.number_input("변동 금액 (원/달러 등)", step=10000, key="log_amt")
+        log_memo = c4.text_input("상세 내용", placeholder="예: 4월 월급 입금, ETF 추가 매수 등", key="log_memo")
         
-        submitted = st.form_submit_button("기록 추가하기")
+        submitted = st.form_submit_button("자산 기록 추가하기")
         if submitted:
-            # 구글 시트 Log 탭에 새로운 줄 추가
             sheet_log.append_row([str(log_date), log_category, log_amount, log_memo])
             st.success("내역이 성공적으로 기록되었습니다!")
-            st.rerun()  # 화면을 새로고침하여 즉시 표에 반영되도록 함
+            st.rerun()
 
     st.divider()
     
-    # 전체 기록 보여주기
-    st.subheader("📋 전체 변동 내역")
+    st.subheader("📋 전체 자산 변동 내역")
     log_records = sheet_log.get_all_records()
     
     if log_records:
         df_log = pd.DataFrame(log_records)
-        # 데이터프레임을 예쁘게 출력
         st.dataframe(df_log, use_container_width=True, hide_index=True)
     else:
         st.info("아직 기록된 내역이 없습니다. 위의 폼에서 첫 기록을 남겨보세요!")
+
+# ------------------------------------------
+# 탭 3: 데이트 비용 내역 (새로 추가됨)
+# ------------------------------------------
+with tab3:
+    st.header("💕 우리 데이트 비용 기록")
+    st.markdown("데이트 통장 입금 내역이나 식비, 데이트 지출 내역을 기록하는 공간입니다.")
+    
+    with st.form("date_form", clear_on_submit=True):
+        st.subheader("새로운 데이트 비용 추가하기")
+        
+        c1, c2 = st.columns(2)
+        date_log_date = c1.date_input("날짜", datetime.now(pytz.timezone('Asia/Seoul')), key="date_log_date")
+        date_category = c2.selectbox("분류", ["식비 (식당/카페)", "문화생활 (영화/전시)", "교통/숙박", "쇼핑/선물", "데이트 통장 입금", "기타"], key="date_cat")
+        
+        c3, c4 = st.columns(2)
+        date_amount = c3.number_input("금액 (원)", step=10000, key="date_amt")
+        # 샤브
