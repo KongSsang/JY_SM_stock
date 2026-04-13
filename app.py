@@ -14,9 +14,12 @@ st.set_page_config(page_title="결혼 자금 포트폴리오", page_icon="💍",
 st.title("💍 우리의 결혼 자금 & 데이트 관리")
 st.markdown("""
 <style>
+    /* 폰트 불러오기 */
     @import url('https://fonts.googleapis.com/css2?family=Nanum+Pen+Script&display=swap');
-    html, body, [class*="css"]  {
-    font-family: 'Nanum Pen Script', cursive;
+    
+    /* 앱 내의 모든 글씨(제목, 본문, 숫자 등)에 강제로 폰트 적용 */
+    html, body, [class*="css"], h1, h2, h3, h4, h5, h6, p, div, span, label, li {
+        font-family: 'Nanum Pen Script', cursive !important;
     }
 </style>
 """, unsafe_allow_html=True)
