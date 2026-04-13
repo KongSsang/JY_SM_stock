@@ -12,7 +12,14 @@ import plotly.express as px
 # 페이지 여백을 줄이고 더 넓게 쓰기 위한 설정 추가
 st.set_page_config(page_title="결혼 자금 포트폴리오", page_icon="💍", layout="wide", initial_sidebar_state="collapsed")
 st.title("💍 우리의 결혼 자금 & 데이트 관리")
-
+st.markdown("""
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Nanum+Pen+Script&display=swap');
+    html, body, [class*="css"]  {
+    font-family: 'Nanum Pen Script', cursive;
+    }
+</style>
+""", unsafe_allow_html=True)
 # ==========================================
 # ⚙️ 설정 영역
 # ==========================================
