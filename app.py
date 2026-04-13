@@ -45,7 +45,6 @@ def get_market_data(ticker_symbol):
 
 @st.cache_data(ttl=60)
 def get_exchange_rate():
-    # 1. 야후 파이낸스 우선 시도 (KRW=X)
     try:
         hist = yf.Ticker("KRW=X").history(period='5d')
         if len(hist) >= 2:
@@ -55,13 +54,12 @@ def get_exchange_rate():
     except:
         pass
     
-    # 2. 야후 실패 시 다른 무료 환율 API 예비 시도 (이 경우 전일대비 변동폭은 0으로 표기)
     try:
         url = "https://open.er-api.com/v6/latest/USD"
         data = requests.get(url).json()
         return float(data['rates']['KRW']), 0.0
     except:
-        return 1350.0, 0.0 # 모든 연결 실패 시 최후의 보루
+        return 1350.0, 0.0 
 
 # ==========================================
 # 🔑 구글 시트 연결
@@ -98,10 +96,10 @@ col3.metric("달러 원화 환산액", f"₩{usd_krw_value:,.0f}", f"환율: ₩
 
 st.divider()
 
-# 2. 주식 자산
-st.header("📊 주식 자산")
+# 2. 주식 자산 (계산 먼저 수행)
 total_stock_value = 0
 total_invested = 0
+stock_render_data = []
 
 for item in portfolio:
     current_price, price_change = get_market_data(item["ticker"])
@@ -114,16 +112,37 @@ for item in portfolio:
         
         total_stock_value += current_value
         total_invested += invested
-
-        st.subheader(f"🔹 {item['name']}")
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("현재가", f"₩{current_price:,.0f}", f"전일대비: {price_change:,.0f}원")
-        c2.metric("평균단가 / 수량", f"₩{item['buy_price']:,.0f} / {item['quantity']}주")
-        c3.metric("수익률", f"{return_rate:,.2f}%", f"평가손익: ₩{profit:,.0f}")
-        c4.metric("현재 평가액", f"₩{current_value:,.0f}")
-        st.write("") 
+        
+        # 화면에 그릴 데이터를 리스트에 임시 저장
+        stock_render_data.append({
+            "item": item,
+            "current_price": current_price,
+            "price_change": price_change,
+            "profit": profit,
+            "return_rate": return_rate,
+            "current_value": current_value,
+            "error": False
+        })
     else:
-        st.error(f"{item['name']} 데이터를 불러올 수 없습니다.")
+        stock_render_data.append({"item": item, "error": True})
+
+# 주식 자산 (화면 출력 - 접기/펴기 기능 적용)
+expander_title = f"📊 주식 자산 (총 평가액: ₩{total_stock_value:,.0f})"
+
+# expanded=False 로 설정하여 기본적으로 접혀있도록 합니다.
+with st.expander(expander_title, expanded=False):
+    for data in stock_render_data:
+        if data["error"]:
+            st.error(f"{data['item']['name']} 데이터를 불러올 수 없습니다.")
+        else:
+            item = data["item"]
+            st.subheader(f"🔹 {item['name']}")
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("현재가", f"₩{data['current_price']:,.0f}", f"전일대비: {data['price_change']:,.0f}원")
+            c2.metric("평균단가 / 수량", f"₩{item['buy_price']:,.0f} / {item['quantity']}주")
+            c3.metric("수익률", f"{data['return_rate']:,.2f}%", f"평가손익: ₩{data['profit']:,.0f}")
+            c4.metric("현재 평가액", f"₩{data['current_value']:,.0f}")
+            st.write("") 
 
 st.divider()
 
