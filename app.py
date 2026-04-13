@@ -6,7 +6,7 @@ st.set_page_config(page_title="내 자산 포트폴리오", layout="wide")
 st.title("📈 나의 고정 자산 포트폴리오 대시보드")
 
 # --- 내 자산 데이터 고정 입력 ---
-krw_balance = 0  # 👈 여기에 현재 보유 중인 원화(KRW) 금액을 입력하세요 (예: 1500000)
+krw_balance = 766872  # 👈 여기에 현재 보유 중인 원화(KRW) 금액을 입력하세요 (예: 1500000)
 usd_balance = 3035.17
 
 portfolio = [
