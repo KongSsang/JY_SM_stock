@@ -171,7 +171,7 @@ with tab1:
 
     st.divider()
 
-    st.header("💰 오늘의 총 자산")
+    st.header("💰 오늘의 총 결혼 자")
     grand_total = krw_balance + usd_current_krw + total_stock_value
     total_profit = total_stock_value - total_invested
     total_return_rate = (total_profit / total_invested) * 100 if total_invested > 0 else 0
@@ -181,7 +181,7 @@ with tab1:
     col_t2.metric("주식 총 평가손익", f"₩{total_profit:,.0f}", f"주식 총 수익률: {total_return_rate:,.2f}%")
 
     st.divider()
-    st.header("📈 나의 실제 총 자산 변동 추이")
+    st.header("📈 우리의 총 자금 변동 추이")
 
     kst = pytz.timezone('Asia/Seoul')
     today_str = datetime.now(kst).strftime('%Y-%m-%d')
@@ -207,7 +207,7 @@ with tab1:
 # 탭 2: 자산 변동 내역 (KRW 자동 계산 완벽 적용)
 # ------------------------------------------
 with tab2:
-    st.header("📝 우리 자산 변동 내역")
+    st.header("📝 우리의 자산 변동 내역")
     
     form_type = st.radio("기록할 내역의 종류를 선택하세요:", ["💰 원화 입출금", "💵 달러 환전", "📈 주식 매수"], horizontal=True)
     st.write("")
@@ -331,7 +331,7 @@ with tab2:
 # 탭 3: 데이트 비용 통계 및 기록
 # ------------------------------------------
 with tab3:
-    st.header("💕 우리 데이트 비용 기록 및 통계")
+    st.header("💕 우리의 데이트 비용 기록 및 통계")
     
     with st.form("date_form", clear_on_submit=True):
         st.subheader("새로운 데이트 지출 추가하기")
