@@ -31,7 +31,7 @@ def load_lottieurl(url: str):
     return r.json()
 
 # 귀여운 하트 애니메이션 (URL은 언제든 다른 Lottie 이미지 주소로 바꿀 수 있습니다)
-lottie_heart = load_lottieurl("https://lottie.host/0a300676-9ceb-4f2f-87a1-4321fb9669ce/IkBGyzReWa.lottie")
+lottie_heart = load_lottieurl("https://lottie.host/0a300676-9ceb-4f2f-87a1-4321fb9669ce/IkBGyzReWa.json")
 
 # 제목과 애니메이션을 나란히 배치하기
 col1, col2 = st.columns([1, 4])
