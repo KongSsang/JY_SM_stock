@@ -256,7 +256,7 @@ with tab3:
         with st.form("f4", clear_on_submit=True, border=False):
             c1, c2, c3 = st.columns(3)
             d = c1.date_input("날짜", key="d_d")
-            cat = c2.selectbox("카테고리", ["식비", "문화", "쇼핑", "기타"])
+            cat = c2.selectbox("분류", ["식비", "문화", "쇼핑", "기타"])
             amt = c3.number_input("금액", step=1000)
             memo = st.text_input("내용", placeholder="오늘의 추억은?")
             if st.form_submit_button("지출 추가"):
@@ -274,7 +274,7 @@ with tab3:
         m_df = df_d[df_d['연월'] == sel_m]
         
         st.metric(f"{sel_m} 지출 합계", f"₩{m_df['금액'].sum():,.0f}")
-        fig = px.pie(m_df, values='금액', names='카테고리', hole=0.4, color_discrete_sequence=px.colors.qualitative.Pastel)
+        fig = px.pie(m_df, values='금액', names='분류', hole=0.4, color_discrete_sequence=px.colors.qualitative.Pastel)
         st.plotly_chart(fig, use_container_width=True)
         
         # 주간 묶음
@@ -282,4 +282,4 @@ with tab3:
         w_sums = m_df.groupby('주')['금액'].sum().reset_index().sort_values('주', ascending=False)
         for _, r in w_sums.iterrows():
             with st.expander(f"📅 {r['주'].strftime('%m/%d')} 주간 합계: ₩{r['금액']:,.0f}"):
-                st.table(m_df[m_df['주'] == r['주']][['날짜', '카테고리', '금액', '내용']])
+                st.table(m_df[m_df['주'] == r['주']][['날짜', '분류', '금액', '내용']])
