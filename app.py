@@ -190,29 +190,8 @@ with tab1:
 # 탭 2: 자산 변동 내역 기록장 (여자친구와 공유)
 # ------------------------------------------
 with tab2:
-    st.header("📝 우리 자산 변동 내역")
-    st.markdown("월급, 저축, 지출 등 자산이 변동된 내역을 직접 기록하고 함께 확인할 수 있는 공간입니다.")
-    
-    # 기록 입력 폼 (Form)
-    with st.form("log_form", clear_on_submit=True):
-        st.subheader("새로운 내역 추가하기")
-        
-        c1, c2 = st.columns(2)
-        log_date = c1.date_input("날짜", datetime.now(pytz.timezone('Asia/Seoul')))
-        log_category = c2.selectbox("분류", ["입금 (저축/월급)", "출금 (데이트/장보기)", "주식 매수", "달러 환전", "기타"])
-        
-        c3, c4 = st.columns(2)
-        log_amount = c3.number_input("변동 금액 (원/달러 등)", step=10000)
-        log_memo = c4.text_input("상세 내용", placeholder="예: 4월 적금, 발리 여행 비행기표, 샤브샤브 장보기 등")
-        
-        submitted = st.form_submit_button("기록 추가하기")
-        if submitted:
-            # 구글 시트 Log 탭에 새로운 줄 추가
-            sheet_log.append_row([str(log_date), log_category, log_amount, log_memo])
-            st.success("내역이 성공적으로 기록되었습니다!")
-            st.rerun()  # 화면을 새로고침하여 즉시 표에 반영되도록 함
-
-    st.divider()
+    st.header("📝 결혼 자금 변동 내역")
+    st.markdown("결혼 자금이 변동된 내역을 함께 확인할 수 있는 공간입니다.")
     
     # 전체 기록 보여주기
     st.subheader("📋 전체 변동 내역")
