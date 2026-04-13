@@ -51,7 +51,6 @@ with col2:
 
 SHEET_NAME = "Asset_history" 
 
-# === 🌟 함수 이름을 바꿔서 기존 캐시를 강제로 파괴합니다! ===
 @st.cache_data(ttl=30) 
 def fetch_realtime_price(ticker_symbol):
     try:
@@ -152,7 +151,7 @@ with tab1:
     stock_render_data = []
 
     for item in portfolio_records:
-        current_price, price_change = fetch_realtime_price(item["ticker"]) # 👈 바뀐 함수 사용
+        current_price, price_change = fetch_realtime_price(item["ticker"])
         if current_price is not None:
             invested = item["buy_price"] * item["quantity"]
             current_value = current_price * item["quantity"]
@@ -169,21 +168,31 @@ with tab1:
         else:
             stock_render_data.append({"item": item, "error": True})
 
-    expander_title = f"📈 주식 자산 (총 평가액: ₩{total_stock_value:,.0f})"
-    with st.expander(expander_title, expanded=False):
-        for data in stock_render_data:
-            if data["error"]:
-                st.error(f"{data['item']['name']} 데이터를 불러올 수 없습니다.")
-            else:
-                item = data["item"]
-                st.markdown(f"**🔹 {item['name']}**")
-                c1, c2, c3, c4 = st.columns(4)
-                # 👇 정상적으로 네이버 코드가 돌고 있는지 눈으로 확인하기 위한 표식
-                c1.metric("현재가(네이버)", f"₩{data['current_price']:,.0f}", f"{data['price_change']:,.0f}원") 
-                c2.metric("평단가 / 수량", f"₩{item['buy_price']:,.0f} / {item['quantity']}주")
-                c3.metric("수익률", f"{data['return_rate']:,.2f}%", f"₩{data['profit']:,.0f}")
-                c4.metric("현재 평가액", f"₩{data['current_value']:,.0f}")
-                st.write("") 
+    # === 👇 이번에 새로 추가된 '주식 자산 요약' 영역 ===
+    with st.container(border=True):
+        st.subheader("📈 주식 자산")
+        total_stock_profit = total_stock_value - total_invested
+        total_stock_return_rate = (total_stock_profit / total_invested) * 100 if total_invested > 0 else 0
+        
+        c1, c2, c3 = st.columns(3)
+        c1.metric("총 투자 원금", f"₩{total_invested:,.0f}")
+        c2.metric("총 평가액", f"₩{total_stock_value:,.0f}")
+        c3.metric("총 평가손익", f"₩{total_stock_profit:,.0f}", f"수익률: {total_stock_return_rate:,.2f}%")
+        
+        # 개별 주식 내역은 아래로 깔끔하게 정리
+        with st.expander("👉 보유 종목 상세 보기", expanded=False):
+            for data in stock_render_data:
+                if data["error"]:
+                    st.error(f"{data['item']['name']} 데이터를 불러올 수 없습니다.")
+                else:
+                    item = data["item"]
+                    st.markdown(f"**🔹 {item['name']}**")
+                    sc1, sc2, sc3, sc4 = st.columns(4)
+                    sc1.metric("현재가(네이버)", f"₩{data['current_price']:,.0f}", f"{data['price_change']:,.0f}원") 
+                    sc2.metric("평단가 / 수량", f"₩{item['buy_price']:,.0f} / {item['quantity']}주")
+                    sc3.metric("수익률", f"{data['return_rate']:,.2f}%", f"₩{data['profit']:,.0f}")
+                    sc4.metric("현재 평가액", f"₩{data['current_value']:,.0f}")
+                    st.write("") 
 
     st.write("")
     
