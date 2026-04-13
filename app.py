@@ -9,7 +9,6 @@ import pytz
 import requests
 import plotly.express as px
 from streamlit_lottie import st_lottie  # 👈 애니메이션용 라이브러리 추가
-from bs4 import BeautifulSoup
 
 # 페이지 여백을 줄이고 더 넓게 쓰기 위한 설정 추가
 st.set_page_config(page_title="결혼 자금 포트폴리오", page_icon="💍", layout="wide", initial_sidebar_state="collapsed")
@@ -66,41 +65,21 @@ SHEET_NAME = "Asset_history"
 # ==========================================
 # 📡 데이터 수집
 # ==========================================
-# ==========================================
-# 📡 [New] 네이버 증권 실시간 크롤러 엔진
-# ==========================================
 @st.cache_data(ttl=60)
-def get_naver_stock_data(ticker_symbol):
-    """네이버 증권에서 실시간 주가와 전일대비 변동폭을 크롤링합니다."""
-    # Yahoo 티커(102110.KS)에서 숫자만 추출(102110)
-    code = ticker_symbol.split('.')[0]
-    
-    url = f"https://finance.naver.com/item/main.naver?code={code}"
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
-    
+def get_market_data(ticker_symbol):
     try:
-        response = requests.get(url, headers=headers)
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        # 현재가 추출
-        price_tag = soup.select_one(".no_today .blind")
-        if not price_tag: return None, None
-        current_price = int(price_tag.text.replace(',', ''))
-        
-        # 전일대비 변동폭 추출
-        diff_tag = soup.select_one(".no_exday .blind")
-        diff_text = diff_tag.text.replace(',', '')
-        
-        # 상승/하락 여부 판단 (아이콘 확인)
-        ico = soup.select_one(".no_exday em span")
-        if ico and "하락" in ico.text:
-            change = -int(diff_text)
-        else:
-            change = int(diff_text)
-            
-        return current_price, change
+        ticker = yf.Ticker(ticker_symbol)
+        hist = ticker.history(period='5d') 
+        if len(hist) >= 2:
+            current_price = float(hist['Close'].iloc[-1])
+            prev_price = float(hist['Close'].iloc[-2])
+            return current_price, current_price - prev_price
+        elif len(hist) == 1:
+            return float(hist['Close'].iloc[0]), 0.0
+        return None, None
     except:
         return None, None
+
 @st.cache_data(ttl=60)
 def get_exchange_rate():
     try:
@@ -121,12 +100,13 @@ def get_exchange_rate():
 # ==========================================
 # 🔑 구글 시트 연결
 # ==========================================
-SHEET_NAME = "Asset_history"
-
 @st.cache_resource
 def init_connection():
     creds_dict = json.loads(st.secrets["google_key"])
-    scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive"
+    ]
     creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
     return gspread.authorize(creds)
 
@@ -138,7 +118,7 @@ try:
     sheet_portfolio = client.open(SHEET_NAME).worksheet("Portfolio")
     sheet_cash = client.open(SHEET_NAME).worksheet("Cash") 
 except Exception as e:
-    st.error(f"시트 연결 오류: {e}")
+    st.error(f"구글 스프레드시트 연결 오류: {e}")
     st.stop()
 
 portfolio_records = sheet_portfolio.get_all_records()
@@ -148,11 +128,13 @@ df_cash = pd.DataFrame(cash_records)
 krw_balance = 0
 usd_purchases = []
 krw_row_idx = 2 
+
 if not df_cash.empty:
     krw_df = df_cash[df_cash['Type'] == 'KRW']
     if not krw_df.empty:
         krw_balance = float(krw_df['Amount'].iloc[0])
         krw_row_idx = int(krw_df.index[0]) + 2
+        
     usd_df = df_cash[df_cash['Type'] == 'USD']
     for _, row in usd_df.iterrows():
         usd_purchases.append({"amount": float(row['Amount']), "buy_rate": float(row['Rate'])})
@@ -184,45 +166,28 @@ with tab1:
         col3.metric("달러 원화 환산액", f"₩{usd_current_krw:,.0f}", f"현재 환율: ₩{current_usd_krw:,.2f}")
         col4.metric("달러 환차익 수익률", f"{usd_return_rate:,.2f}%", f"₩{usd_profit:,.0f}")
 
-# 주식 계산 (네이버 크롤러 사용)
-    total_stock_val = 0
-    total_stock_invested = 0
-    stock_list = []
+    total_stock_value = 0
+    total_invested = 0
+    stock_render_data = []
+
     for item in portfolio_records:
-        cp, diff = get_naver_stock_data(item["ticker"]) # 👈 엔진 교체
-        if cp:
-            inv = item["buy_price"] * item["quantity"]
-            val = cp * item["quantity"]
-            total_stock_val += val
-            total_stock_invested += inv
-            stock_list.append({"item": item, "cp": cp, "diff": diff, "val": val, "profit": val-inv})
+        current_price, price_change = get_market_data(item["ticker"])
+        if current_price is not None:
+            invested = item["buy_price"] * item["quantity"]
+            current_value = current_price * item["quantity"]
+            profit = current_value - invested
+            return_rate = (profit / invested) * 100 if invested > 0 else 0
+            
+            total_stock_value += current_value
+            total_invested += invested
+            
+            stock_render_data.append({
+                "item": item, "current_price": current_price, "price_change": price_change,
+                "profit": profit, "return_rate": return_rate, "current_value": current_value, "error": False
+            })
+        else:
+            stock_render_data.append({"item": item, "error": True})
 
-    with st.expander(f"📈 주식 자산 (총 평가액: ₩{total_stock_val:,.0f})", expanded=False):
-        for s in stock_list:
-            st.write(f"**{s['item']['name']}**")
-            sc1, sc2, sc3, sc4 = st.columns(4)
-            sc1.metric("현재가", f"₩{s['cp']:,.0f}", f"{s['diff']:,.0f}")
-            sc2.metric("평단/수량", f"{s['item']['buy_price']:,.0f} / {s['item']['quantity']}주")
-            ret = (s['profit']/(s['item']['buy_price']*s['item']['quantity'])*100)
-            sc3.metric("수익률", f"{ret:,.2f}%", f"₩{s['profit']:,.0f}")
-            sc4.metric("평가액", f"₩{s['val']:,.0f}")
-
-    with st.container(border=True):
-        st.subheader("💰 오늘의 총 결혼 자금")
-        grand_total = krw_balance + usd_val_krw + total_stock_val
-        st.metric("합계 (현금 + 주식)", f"₩{grand_total:,.0f}")
-
-    records = sheet_history.get_all_records()
-    df_hist = pd.DataFrame(records)
-    today = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d')
-    if df_hist.empty or today not in df_hist['Date'].values:
-        sheet_history.append_row([today, grand_total])
-    else:
-        sheet_history.update_cell(len(df_hist)+1, 2, float(grand_total))
-    
-    st.write("##### 📊 자산 성장 추이")
-    df_hist['Date'] = pd.to_datetime(df_hist['Date'])
-    st.line_chart(df_hist.set_index('Date')['Total_Asset'])
     # UI 최적화: 아코디언 메뉴 깔끔하게 다듬기
     expander_title = f"📈 주식 자산 (총 평가액: ₩{total_stock_value:,.0f})"
     with st.expander(expander_title, expanded=False):
