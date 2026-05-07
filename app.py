@@ -43,7 +43,6 @@ with col2:
 
 SHEET_NAME = "Asset_history" 
 
-# === 🛠️ 버그 수정 완료: 꼬리표(.KS) 떼고 진짜 코드만 확인! ===
 def is_us_stock(ticker):
     """'.KS' 나 '.KQ'를 제외한 앞부분 코드에 영문이 있는지 확인"""
     base_ticker = str(ticker).split('.')[0]
@@ -61,7 +60,6 @@ def fetch_realtime_price(ticker_symbol):
     ticker_str = str(ticker_symbol).strip()
     
     if is_us_stock(ticker_str):
-        # --- 미국 주식 (yfinance) ---
         try:
             stock = yf.Ticker(ticker_str)
             hist = stock.history(period="2d")
@@ -72,7 +70,6 @@ def fetch_realtime_price(ticker_symbol):
             return None, None, None
         except: return None, None, None
     else:
-        # --- 한국 주식 (네이버 크롤링) ---
         try:
             code = ticker_str.split('.')[0]
             url = f"https://finance.naver.com/item/main.naver?code={code}"
@@ -129,22 +126,53 @@ if not df_cash.empty:
     usd_cash_total = usd_df['Amount'].sum()
     usd_row_indices = (usd_df.index + 2).tolist()
 
+# === 🌟 제가 실수로 지워버렸던 적금 데이터 계산 부분이 완벽히 부활했습니다 ===
 today_dt = pd.to_datetime(datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d'))
 total_active_savings = 0
-for row in savings_records:
+savings_render_data = [] # 👈 다시 살아난 문제의 변수입니다!
+
+def count_deposits(start_dt, target_dt, end_dt, day):
+    c_year, c_month = start_dt.year, start_dt.month
+    cnt = 0
+    while True:
+        last_day = calendar.monthrange(c_year, c_month)[1]
+        d_day = min(day, last_day) 
+        d_date = pd.Timestamp(year=c_year, month=c_month, day=d_day)
+        
+        if d_date >= end_dt: break 
+        if d_date > target_dt: break
+        if d_date >= start_dt: cnt += 1
+            
+        c_month += 1
+        if c_month > 12:
+            c_month = 1
+            c_year += 1
+    return cnt
+
+for idx, row in enumerate(savings_records):
+    start_dt = pd.to_datetime(row['start_date'])
+    end_dt = pd.to_datetime(row['end_date'])
+    
     if row['status'] == '진행중':
-        start_dt, end_dt = pd.to_datetime(row['start_date']), pd.to_datetime(row['end_date'])
         target_dt = min(end_dt, today_dt)
-        c_year, c_month, cnt = start_dt.year, start_dt.month, 0
-        while True:
-            d_date = pd.Timestamp(year=c_year, month=c_month, day=min(row['deposit_day'], calendar.monthrange(c_year, c_month)[1]))
-            if d_date >= end_dt or d_date > target_dt: break
-            if d_date >= start_dt: cnt += 1
-            c_month += 1
-            if c_month > 12: c_month = 1; c_year += 1
-        total_active_savings += (cnt * row['monthly_amount'])
+        passed_deposits = count_deposits(start_dt, target_dt, end_dt, row['deposit_day'])
+        total_expected_deposits = count_deposits(start_dt, end_dt, end_dt, row['deposit_day'])
+        
+        accumulated_amt = passed_deposits * row['monthly_amount']
+        total_active_savings += accumulated_amt
+        is_matured = today_dt >= end_dt
+        
+        savings_render_data.append({
+            "row_idx": idx + 2, "item": row, "accumulated": accumulated_amt,
+            "passed_deposits": passed_deposits, "total_expected": total_expected_deposits, "is_matured": is_matured
+        })
+    else:
+        savings_render_data.append({
+            "row_idx": idx + 2, "item": row, "accumulated": 0, "is_matured": True
+        })
 
 actual_krw_balance = krw_balance
+# =========================================================================
 
 tab1, tab2, tab4, tab3 = st.tabs(["📊 자산 대시보드", "📝 자산 변동", "🏦 적금", "💕 데이트 비용"])
 
