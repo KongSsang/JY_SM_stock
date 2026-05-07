@@ -44,7 +44,6 @@ with col2:
 SHEET_NAME = "Asset_history" 
 
 def is_us_stock(ticker):
-    """'.KS' 나 '.KQ'를 제외한 앞부분 코드에 영문이 있는지 확인"""
     base_ticker = str(ticker).split('.')[0]
     return any(c.isalpha() for c in base_ticker)
 
@@ -126,10 +125,9 @@ if not df_cash.empty:
     usd_cash_total = usd_df['Amount'].sum()
     usd_row_indices = (usd_df.index + 2).tolist()
 
-# === 🌟 제가 실수로 지워버렸던 적금 데이터 계산 부분이 완벽히 부활했습니다 ===
 today_dt = pd.to_datetime(datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d'))
 total_active_savings = 0
-savings_render_data = [] # 👈 다시 살아난 문제의 변수입니다!
+savings_render_data = []
 
 def count_deposits(start_dt, target_dt, end_dt, day):
     c_year, c_month = start_dt.year, start_dt.month
@@ -172,7 +170,6 @@ for idx, row in enumerate(savings_records):
         })
 
 actual_krw_balance = krw_balance
-# =========================================================================
 
 tab1, tab2, tab4, tab3 = st.tabs(["📊 자산 대시보드", "📝 자산 변동", "🏦 적금", "💕 데이트 비용"])
 
@@ -315,7 +312,11 @@ with tab2:
                         new_usd_bal = usd_cash_total - total_cost
                         sheet_cash.update_cell(usd_row_indices[0], 2, new_usd_bal)
                         sheet_portfolio.append_row([b_name, b_ticker, b_qty, b_price])
-                        sheet_log.append_row([str(b_date), "주식 매수(USD)", total_cost, f"{b_name} {b_qty}주 매수"])
+                        
+                        # 🌟 수정된 부분: 원화로 환산하여 금액을 넣고, 내용(메모)에 달러 사용액을 남깁니다.
+                        krw_converted_cost = int(total_cost * curr_exch_rate)
+                        sheet_log.append_row([str(b_date), "주식 매수(USD)", krw_converted_cost, f"{b_name} {b_qty}주 매수 (${total_cost:,.2f} 차감)"])
+                        
                         st.toast(f"달러 잔고에서 ${total_cost:,.2f} 차감 완료! 🇺🇸", icon="✅")
                         st.rerun()
                 else:
