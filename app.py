@@ -255,6 +255,37 @@ def init_connection():
     return gspread.authorize(creds)
 
 
+def format_log_amount(val):
+    """Log 시트의 금액 컬럼은 (1) 순수 숫자(KRW 환산값) 또는
+    (2) '3035.17달러' / '524200원' 같은 단위 포함 문자열 두 가지가 섞여 있다.
+    어떤 형태든 통화 표기를 포함한 표시용 문자열로 변환한다."""
+    if pd.isna(val) or val == '' or val is None:
+        return ""
+    # 이미 숫자(int/float)면 KRW로 간주
+    if isinstance(val, (int, float)):
+        return f"₩{val:,.0f}"
+    s = str(val).strip()
+    # 콤마 포함 순수 숫자 문자열도 KRW
+    try:
+        num = float(s.replace(',', ''))
+        return f"₩{num:,.0f}"
+    except ValueError:
+        pass
+    # 단위 포함 문자열 파싱
+    digits = ''.join(c for c in s if c.isdigit() or c == '.')
+    if not digits:
+        return s
+    try:
+        num = float(digits)
+    except ValueError:
+        return s
+    if '달러' in s or '$' in s or 'USD' in s.upper():
+        return f"${num:,.2f}"
+    if '원' in s or '₩' in s or 'KRW' in s.upper():
+        return f"₩{num:,.0f}"
+    return s
+
+
 def update_usd_cash_total(sheet_cash, usd_row_indices, new_total, latest_rate=None):
     """USD 셀을 첫 행에 합산 잔고로 통합. 나머지 USD 행은 0으로 정리.
     latest_rate가 주어지면 첫 행의 환율도 갱신."""
@@ -645,13 +676,12 @@ with tab2:
     log_records = sheet_log.get_all_records()
     if log_records:
         df_log = pd.DataFrame(log_records)
+        # 🔧 금액 컬럼은 원본/현재 코드가 섞여 들어가 (1) 단위 포함 문자열,
+        # (2) 순수 숫자 두 가지가 공존. format_log_amount 로 통화 표기를 살려서 표시.
         if '금액' in df_log.columns:
-            df_log['금액'] = pd.to_numeric(df_log['금액'], errors='coerce').fillna(0)
+            df_log['금액'] = df_log['금액'].apply(format_log_amount)
         df_log = df_log.sort_values(by='날짜', ascending=False)
-        st.dataframe(
-            df_log, use_container_width=True, hide_index=True,
-            column_config={"금액": st.column_config.NumberColumn("금액", format="₩ %d")}
-        )
+        st.dataframe(df_log, use_container_width=True, hide_index=True)
     else:
         st.caption("아직 기록된 자산 변동 내역이 없습니다.")
 
