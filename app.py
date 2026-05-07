@@ -558,6 +558,16 @@ with tab1:
         df_history['Total_Asset'] = pd.to_numeric(df_history['Total_Asset'], errors='coerce')
         df_history = df_history.dropna(subset=['Total_Asset']).sort_values('Date')
 
+        # y축 범위: 데이터 min/max 기준 ±15% 패딩 (변동 가시성 확보)
+        y_min = float(df_history['Total_Asset'].min())
+        y_max = float(df_history['Total_Asset'].max())
+        y_range = y_max - y_min
+        if y_range == 0:
+            y_pad = max(y_max * 0.05, 1)
+        else:
+            y_pad = y_range * 0.15
+        yaxis_range = [y_min - y_pad, y_max + y_pad]
+
         fig_history = px.area(
             df_history, x='Date', y='Total_Asset',
             color_discrete_sequence=['#C44569']
@@ -565,7 +575,10 @@ with tab1:
         fig_history.update_traces(
             fill='tozeroy',
             fillcolor='rgba(196, 69, 105, 0.15)',
-            line=dict(width=2.5)
+            line=dict(width=2.5),
+            mode='lines+markers',
+            marker=dict(size=6, color='#C44569'),
+            hovertemplate='%{x|%Y-%m-%d}<br>₩%{y:,.0f}<extra></extra>',
         )
         fig_history.update_layout(
             margin=dict(t=10, b=10, l=10, r=10),
@@ -573,7 +586,11 @@ with tab1:
             plot_bgcolor='rgba(0,0,0,0)',
             paper_bgcolor='rgba(0,0,0,0)',
             height=300,
-            yaxis=dict(gridcolor='#F3E8EE', tickformat=',.0f'),
+            yaxis=dict(
+                gridcolor='#F3E8EE',
+                tickformat=',.0f',
+                range=yaxis_range,  # 🔧 데이터 범위에 맞춰 확대
+            ),
             xaxis=dict(gridcolor='#F3E8EE'),
         )
         st.plotly_chart(fig_history, use_container_width=True)
