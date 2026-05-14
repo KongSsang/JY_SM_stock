@@ -667,13 +667,13 @@ with tab2:
                         st.toast(f"원화 잔고에서 ₩{total_cost:,.0f} 차감 완료! 🇰🇷", icon="✅")
                         st.rerun()
 
-    # 🌟 새롭게 추가된 '주식 매도' 영역
+    # 🌟 새롭게 추가 및 개선된 '주식 매도' 영역 (수수료 적용, 수량 버그 방지)
     elif mode == "📉 주식 매도":
         if not portfolio_records:
             st.info("현재 보유 중인 주식이 없습니다.")
         else:
             with st.form("sell_stock_form", clear_on_submit=True, border=True):
-                st.info("💡 매도 금액은 티커에 따라 자동으로 달러/원화 잔고에 입금됩니다.")
+                st.info("💡 매도 금액은 수수료를 뺀 실제 수익금이 달러/원화 잔고에 입금됩니다.")
 
                 # 고유 식별을 위해 행 번호(idx+2)를 활용하여 드롭다운 옵션 생성
                 stock_options = {
@@ -688,17 +688,20 @@ with tab2:
                 row_idx, selected_stock = stock_options[selected_stock_label]
                 max_qty = selected_stock['quantity']
 
-                c3, c4 = st.columns(2)
-                s_qty = c3.number_input("매도 수량", min_value=1, max_value=int(max_qty), step=1)
-                s_price = c4.number_input("매도 단가 (해당 통화 기준)", min_value=0.0, step=0.1)
+                # 수수료 입력칸 추가 & 수량 기본값을 '전량'으로 세팅하여 1개로 넘어가는 실수 방지
+                c3, c4, c5 = st.columns(3)
+                s_qty = c3.number_input("매도 수량", min_value=1, max_value=int(max_qty), value=int(max_qty), step=1)
+                s_price = c4.number_input("매도 단가 (해당 통화)", min_value=0.0, step=0.1)
+                s_fee = c5.number_input("수수료 (해당 통화)", min_value=0.0, step=0.01)
 
                 if st.form_submit_button("📉 주식 매도 기록하기", use_container_width=True):
                     ticker = selected_stock['ticker']
                     name = selected_stock['name']
                     buy_price = selected_stock['buy_price']
 
-                    total_revenue = s_qty * s_price
-                    realized_profit = (s_price - buy_price) * s_qty
+                    # 수수료를 차감하여 최종 입금액과 순이익 계산
+                    total_revenue = (s_qty * s_price) - s_fee
+                    realized_profit = ((s_price - buy_price) * s_qty) - s_fee
 
                     # 1. 포트폴리오 시트 업데이트 (전량 매도 시 행 삭제, 일부 매도 시 수량 변경)
                     if s_qty == max_qty:
@@ -715,7 +718,7 @@ with tab2:
                         krw_converted_revenue = int(total_revenue * curr_exch_rate)
                         sheet_log.append_row([
                             str(s_date), "주식 매도(USD)", krw_converted_revenue,
-                            f"{name} {s_qty}주 매도 (${total_revenue:,.2f} 입금) / 차익: ${realized_profit:,.2f}"
+                            f"{name} {s_qty}주 매도 (${total_revenue:,.2f} 입금, 수수료 ${s_fee:,.2f} 차감) / 차익: ${realized_profit:,.2f}"
                         ])
                         st.toast(f"달러 잔고에 ${total_revenue:,.2f} 입금 완료! 🇺🇸", icon="✅")
                     else:
@@ -723,12 +726,11 @@ with tab2:
                         sheet_cash.update_cell(krw_row_idx, 2, new_krw)
                         sheet_log.append_row([
                             str(s_date), "주식 매도(KRW)", total_revenue,
-                            f"{name} {s_qty}주 매도 / 차익: ₩{realized_profit:,.0f}"
+                            f"{name} {s_qty}주 매도 (수수료 ₩{s_fee:,.0f} 차감) / 차익: ₩{realized_profit:,.0f}"
                         ])
                         st.toast(f"원화 잔고에 ₩{total_revenue:,.0f} 입금 완료! 🇰🇷", icon="✅")
 
                     st.rerun()
-
     st.write("")
     st.markdown("##### 📋 최근 기록")
     log_records = sheet_log.get_all_records()
