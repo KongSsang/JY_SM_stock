@@ -256,22 +256,16 @@ def init_connection():
 
 
 def format_log_amount(val):
-    """Log 시트의 금액 컬럼은 (1) 순수 숫자(KRW 환산값) 또는
-    (2) '3035.17달러' / '524200원' 같은 단위 포함 문자열 두 가지가 섞여 있다.
-    어떤 형태든 통화 표기를 포함한 표시용 문자열로 변환한다."""
     if pd.isna(val) or val == '' or val is None:
         return ""
-    # 이미 숫자(int/float)면 KRW로 간주
     if isinstance(val, (int, float)):
         return f"₩{val:,.0f}"
     s = str(val).strip()
-    # 콤마 포함 순수 숫자 문자열도 KRW
     try:
         num = float(s.replace(',', ''))
         return f"₩{num:,.0f}"
     except ValueError:
         pass
-    # 단위 포함 문자열 파싱
     digits = ''.join(c for c in s if c.isdigit() or c == '.')
     if not digits:
         return s
@@ -287,17 +281,13 @@ def format_log_amount(val):
 
 
 def update_usd_cash_total(sheet_cash, usd_row_indices, new_total, latest_rate=None):
-    """USD 셀을 첫 행에 합산 잔고로 통합. 나머지 USD 행은 0으로 정리.
-    latest_rate가 주어지면 첫 행의 환율도 갱신."""
     if usd_row_indices:
         sheet_cash.update_cell(usd_row_indices[0], 2, float(new_total))
         if latest_rate is not None:
             sheet_cash.update_cell(usd_row_indices[0], 3, float(latest_rate))
-        # 나머지 USD 행은 0으로 정리 (행 삭제 대신 안전하게)
         for r_idx in usd_row_indices[1:]:
             sheet_cash.update_cell(r_idx, 2, 0)
     else:
-        # USD 행이 하나도 없는 경우 새로 추가
         sheet_cash.append_row(['USD', float(new_total), float(latest_rate or 0)])
 
 
@@ -341,7 +331,6 @@ savings_records = sheet_savings.get_all_records()
 df_cash = pd.DataFrame(cash_records)
 curr_exch_rate = get_exchange_rate()
 
-# ----- 현금 잔고 계산 (숫자형 안전 처리 추가) -----
 krw_balance = 0.0
 usd_cash_total = 0.0
 usd_row_indices = []
@@ -426,7 +415,6 @@ tab1, tab2, tab4, tab3 = st.tabs([
 # Tab 1: 자산 대시보드
 # ============================================================
 with tab1:
-    # ---- 현금 + 적금 ----
     with st.container(border=True):
         st.subheader("💵 현금 및 적금 자산")
         usd_in_krw = usd_cash_total * curr_exch_rate
@@ -436,7 +424,6 @@ with tab1:
         c3.metric("보유 달러", f"${usd_cash_total:,.2f}")
         c4.metric("달러 원화 환산", f"₩{usd_in_krw:,.0f}", f"환율: {curr_exch_rate:,.1f}")
 
-    # ---- 주식 평가 계산 ----
     total_stock_val_krw = 0
     total_invested_krw = 0
     total_daily_profit_krw = 0
@@ -464,7 +451,6 @@ with tab1:
         else:
             failed_tickers.append(f"{item.get('name', '')}({item.get('ticker', '')})")
 
-    # ---- 주식 자산 ----
     with st.container(border=True):
         st.subheader("📈 주식 자산 (KRW 합산)")
 
@@ -483,7 +469,6 @@ with tab1:
             if not stock_list:
                 st.caption("보유 중인 종목이 없습니다.")
             else:
-                # 카드 그리드 (2열)
                 for i in range(0, len(stock_list), 2):
                     cols = st.columns(2)
                     for j, col in enumerate(cols):
@@ -522,7 +507,6 @@ with tab1:
                                 </div>
                                 """, unsafe_allow_html=True)
 
-    # ---- 총 자산 ----
     with st.container(border=True):
         st.subheader("💰 오늘의 총 자산")
         grand_total = krw_balance + total_active_savings + usd_in_krw + total_stock_val_krw
@@ -532,7 +516,6 @@ with tab1:
         daily_rate = (total_daily_profit_krw / yesterday_val * 100) if yesterday_val > 0 else 0
         tc2.metric("오늘의 주식 손익", f"₩{total_daily_profit_krw:,.0f}", f"{daily_rate:,.2f}%")
 
-    # ---- 히스토리 기록 (버그 수정: 날짜로 행 찾기) ----
     kst = pytz.timezone('Asia/Seoul')
     today_str = datetime.now(kst).strftime('%Y-%m-%d')
     records = sheet_history.get_all_records()
@@ -543,22 +526,19 @@ with tab1:
         records = sheet_history.get_all_records()
         df_history = pd.DataFrame(records)
     else:
-        # 🔧 버그 수정: 날짜로 행 인덱스 찾기 (이전엔 항상 마지막 행을 덮어씀)
         match = df_history.index[df_history['Date'].astype(str) == today_str]
         if len(match) > 0:
             today_idx = int(match[0])
-            row_idx = today_idx + 2  # 헤더(1) + 0-indexed → +2
+            row_idx = today_idx + 2
             sheet_history.update_cell(row_idx, 2, float(grand_total))
             df_history.at[today_idx, 'Total_Asset'] = float(grand_total)
 
-    # ---- 자산 변동 추이 차트 ----
     if not df_history.empty:
         st.markdown("##### 📊 총 자산 변동 추이")
         df_history['Date'] = pd.to_datetime(df_history['Date'])
         df_history['Total_Asset'] = pd.to_numeric(df_history['Total_Asset'], errors='coerce')
         df_history = df_history.dropna(subset=['Total_Asset']).sort_values('Date')
 
-        # y축 범위: 데이터 min/max 기준 ±15% 패딩 (변동 가시성 확보)
         y_min = float(df_history['Total_Asset'].min())
         y_max = float(df_history['Total_Asset'].max())
         y_range = y_max - y_min
@@ -589,7 +569,7 @@ with tab1:
             yaxis=dict(
                 gridcolor='#F3E8EE',
                 tickformat=',.0f',
-                range=yaxis_range,  # 🔧 데이터 범위에 맞춰 확대
+                range=yaxis_range,
             ),
             xaxis=dict(gridcolor='#F3E8EE'),
         )
@@ -603,7 +583,8 @@ with tab2:
     st.subheader("📝 자산 변동 기록")
     mode = st.radio(
         "기록 종류",
-        ["💰 원화 입출금", "💵 달러 환전", "📈 주식 매수"],
+        # 🌟 여기에 '주식 매도' 항목이 새롭게 추가되었습니다!
+        ["💰 원화 입출금", "💵 달러 환전", "📈 주식 매수", "📉 주식 매도"],
         horizontal=True
     )
 
@@ -636,7 +617,6 @@ with tab2:
                 krw_spent = usd_amount * exch_rate
                 sheet_cash.update_cell(krw_row_idx, 2, krw_balance - krw_spent)
 
-                # 🔧 버그 수정: USD 행을 첫 행에 통합 (다중 USD 행 문제 해결)
                 new_usd_total = usd_cash_total + usd_amount
                 update_usd_cash_total(sheet_cash, usd_row_indices, new_usd_total, latest_rate=exch_rate)
 
@@ -664,7 +644,6 @@ with tab2:
                     if usd_cash_total < total_cost:
                         st.error(f"달러 잔고가 부족합니다! (필요: ${total_cost:,.2f} / 보유: ${usd_cash_total:,.2f})")
                     else:
-                        # 🔧 버그 수정: USD 차감을 첫 행에 통합 (다중 USD 행 문제 해결)
                         new_usd_total = usd_cash_total - total_cost
                         update_usd_cash_total(sheet_cash, usd_row_indices, new_usd_total)
 
@@ -688,13 +667,73 @@ with tab2:
                         st.toast(f"원화 잔고에서 ₩{total_cost:,.0f} 차감 완료! 🇰🇷", icon="✅")
                         st.rerun()
 
+    # 🌟 새롭게 추가된 '주식 매도' 영역
+    elif mode == "📉 주식 매도":
+        if not portfolio_records:
+            st.info("현재 보유 중인 주식이 없습니다.")
+        else:
+            with st.form("sell_stock_form", clear_on_submit=True, border=True):
+                st.info("💡 매도 금액은 티커에 따라 자동으로 달러/원화 잔고에 입금됩니다.")
+
+                # 고유 식별을 위해 행 번호(idx+2)를 활용하여 드롭다운 옵션 생성
+                stock_options = {
+                    f"{p['name']} ({p['ticker']}) | {p['quantity']}주 보유 | 평단: {p['buy_price']}": (idx + 2, p)
+                    for idx, p in enumerate(portfolio_records)
+                }
+
+                c1, c2 = st.columns(2)
+                selected_stock_label = c1.selectbox("매도할 종목 선택", list(stock_options.keys()))
+                s_date = c2.date_input("매도일", datetime.now(pytz.timezone('Asia/Seoul')))
+
+                row_idx, selected_stock = stock_options[selected_stock_label]
+                max_qty = selected_stock['quantity']
+
+                c3, c4 = st.columns(2)
+                s_qty = c3.number_input("매도 수량", min_value=1, max_value=int(max_qty), step=1)
+                s_price = c4.number_input("매도 단가 (해당 통화 기준)", min_value=0.0, step=0.1)
+
+                if st.form_submit_button("📉 주식 매도 기록하기", use_container_width=True):
+                    ticker = selected_stock['ticker']
+                    name = selected_stock['name']
+                    buy_price = selected_stock['buy_price']
+
+                    total_revenue = s_qty * s_price
+                    realized_profit = (s_price - buy_price) * s_qty
+
+                    # 1. 포트폴리오 시트 업데이트 (전량 매도 시 행 삭제, 일부 매도 시 수량 변경)
+                    if s_qty == max_qty:
+                        sheet_portfolio.delete_row(row_idx)
+                    else:
+                        new_qty = max_qty - s_qty
+                        sheet_portfolio.update_cell(row_idx, 3, new_qty)
+
+                    # 2. 현금 잔고 및 로그 업데이트
+                    if is_us_stock(ticker):
+                        new_usd_total = usd_cash_total + total_revenue
+                        update_usd_cash_total(sheet_cash, usd_row_indices, new_usd_total)
+
+                        krw_converted_revenue = int(total_revenue * curr_exch_rate)
+                        sheet_log.append_row([
+                            str(s_date), "주식 매도(USD)", krw_converted_revenue,
+                            f"{name} {s_qty}주 매도 (${total_revenue:,.2f} 입금) / 차익: ${realized_profit:,.2f}"
+                        ])
+                        st.toast(f"달러 잔고에 ${total_revenue:,.2f} 입금 완료! 🇺🇸", icon="✅")
+                    else:
+                        new_krw = krw_balance + total_revenue
+                        sheet_cash.update_cell(krw_row_idx, 2, new_krw)
+                        sheet_log.append_row([
+                            str(s_date), "주식 매도(KRW)", total_revenue,
+                            f"{name} {s_qty}주 매도 / 차익: ₩{realized_profit:,.0f}"
+                        ])
+                        st.toast(f"원화 잔고에 ₩{total_revenue:,.0f} 입금 완료! 🇰🇷", icon="✅")
+
+                    st.rerun()
+
     st.write("")
     st.markdown("##### 📋 최근 기록")
     log_records = sheet_log.get_all_records()
     if log_records:
         df_log = pd.DataFrame(log_records)
-        # 🔧 금액 컬럼은 원본/현재 코드가 섞여 들어가 (1) 단위 포함 문자열,
-        # (2) 순수 숫자 두 가지가 공존. format_log_amount 로 통화 표기를 살려서 표시.
         if '금액' in df_log.columns:
             df_log['금액'] = df_log['금액'].apply(format_log_amount)
         df_log = df_log.sort_values(by='날짜', ascending=False)
@@ -769,7 +808,6 @@ with tab4:
                             f"매월 {item['deposit_day']}일 외부 이체"
                         )
 
-                        # 진행 바 추가
                         progress = (data['passed_deposits'] / data['total_expected']) if data['total_expected'] else 0
                         st.progress(min(progress, 1.0), text=f"진행률 {progress*100:.1f}%")
                         st.caption(f"📅 만기일: {item['end_date']}")
@@ -846,7 +884,6 @@ with tab3:
 
             if not monthly_df.empty:
                 expense_summary = monthly_df.groupby('분류')['금액'].sum().reset_index()
-                # 웨딩 테마 컬러 시퀀스
                 wedding_colors = ['#FF6B9D', '#C44569', '#786FA6', '#F8B195', '#F67280']
                 fig = px.pie(
                     expense_summary, values='금액', names='분류', hole=0.55,
