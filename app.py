@@ -705,7 +705,7 @@ with tab2:
 
                     # 1. 포트폴리오 시트 업데이트 (전량 매도 시 행 삭제, 일부 매도 시 수량 변경)
                     if s_qty == max_qty:
-                        sheet_portfolio.delete_row(row_idx)
+                        sheet_portfolio.delete_rows(row_idx)
                     else:
                         new_qty = max_qty - s_qty
                         sheet_portfolio.update_cell(row_idx, 3, new_qty)
